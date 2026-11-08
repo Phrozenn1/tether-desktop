@@ -10,10 +10,13 @@ use eframe::egui;
 fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([460.0, 580.0])
-            .with_min_inner_size([380.0, 440.0])
+            .with_app_id("tether")
+            .with_inner_size([250.0, 60.0])
+            .with_min_inner_size([180.0, 50.0])
             .with_title("Tether — ADHD Flow & Save-State")
-            .with_always_on_top(),
+            .with_always_on_top()
+            .with_decorations(false)
+            .with_transparent(true),
         ..Default::default()
     };
 

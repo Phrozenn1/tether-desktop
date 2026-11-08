@@ -19,6 +19,7 @@ pub struct TetherApp {
     impulse: ImpulseState,
     active_tab: ActiveTab,
     always_on_top: bool,
+    is_mini_hud: bool,
     last_update: Instant,
     yak_jabs: Vec<&'static str>,
 }
@@ -31,6 +32,7 @@ impl Default for TetherApp {
             impulse: ImpulseState::new(),
             active_tab: ActiveTab::Flowmodoro,
             always_on_top: true,
+            is_mini_hud: true, // Starter som standard som et lite flytende HUD-vindu
             last_update: Instant::now(),
             yak_jabs: vec![
                 "Å tweake verktøyene dine teller dessverre ikke som pensumlesing.",
@@ -60,9 +62,22 @@ impl TetherApp {
 
         Self::default()
     }
+
+    fn toggle_hud_mode(&mut self, ctx: &egui::Context) {
+        self.is_mini_hud = !self.is_mini_hud;
+        if self.is_mini_hud {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(250.0, 60.0)));
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(460.0, 580.0)));
+        }
+    }
 }
 
 impl eframe::App for TetherApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Rgba::TRANSPARENT.to_array()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let now = Instant::now();
         let dt = now.duration_since(self.last_update);
@@ -74,17 +89,39 @@ impl eframe::App for TetherApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
 
+        // Global tastatursnarvei (Mellomrom = Toggle Flowmodoro)
         if ctx.input(|i| i.key_pressed(egui::Key::Space)) && !ctx.wants_keyboard_input() {
             self.flow.toggle();
         }
 
+        // Hvis vi er i Mini-HUD modus, vis kun det kompakte flytende vinduet
+        if self.is_mini_hud {
+            self.render_mini_hud_window(ctx);
+            return;
+        }
+
+        // Full modus med alle faner
         egui::TopBottomPanel::top("top_header").show(ctx, |ui| {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.heading(RichText::new("⚓ Tether").strong().color(Color32::from_rgb(240, 240, 245)));
+                let header_title = ui.heading(RichText::new("⚓ Tether").strong().color(Color32::from_rgb(240, 240, 245)));
+                if header_title.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                }
+                if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) && header_title.hovered() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
                 ui.label(RichText::new("ADHD Flow & Save-State").color(Color32::from_rgb(140, 145, 160)));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(RichText::new("✕").size(13.0)).on_hover_text("Lukk Tether").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+
+                    if ui.button(RichText::new("🗕 Mini-HUD").size(12.0).strong()).clicked() {
+                        self.toggle_hud_mode(ctx);
+                    }
+
                     if ui.checkbox(&mut self.always_on_top, "📌 Fest øverst").changed() {
                         let level = if self.always_on_top {
                             egui::WindowLevel::AlwaysOnTop
@@ -118,6 +155,81 @@ impl eframe::App for TetherApp {
 }
 
 impl TetherApp {
+    fn render_mini_hud_window(&mut self, ctx: &egui::Context) {
+        let (border_color, text_color, tag) = match self.flow.state {
+            FlowState::Focus => (Color32::from_rgb(152, 195, 121), Color32::from_rgb(152, 195, 121), "[FOKUS]"),
+            FlowState::Break => (Color32::from_rgb(224, 108, 117), Color32::from_rgb(224, 108, 117), "[PAUSE]"),
+            FlowState::Idle => (Color32::from_rgb(80, 85, 100), Color32::from_rgb(180, 185, 200), "[KLAR]"),
+        };
+
+        let panel = egui::CentralPanel::default().frame(
+            egui::Frame::none()
+                .fill(Color32::from_rgb(20, 22, 28))
+                .stroke(Stroke::new(2.0_f32, border_color))
+                .rounding(10.0)
+                .inner_margin(egui::Margin::symmetric(10.0, 8.0)),
+        );
+
+        let res = panel.show(ctx, |ui| {
+            ui.horizontal_centered(|ui| {
+                // Dra-ikon (klikk og dra vinduet)
+                let drag_resp = ui.label(RichText::new("⚓").size(18.0).color(border_color));
+                if drag_resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                }
+                if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) && drag_resp.hovered() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+
+                ui.add_space(6.0);
+
+                // Klokkevisning (Klikk for å starte/pause)
+                let time_btn = egui::Button::new(
+                    RichText::new(self.flow.current_time_display())
+                        .size(22.0)
+                        .monospace()
+                        .strong()
+                        .color(text_color),
+                )
+                .frame(false);
+
+                if ui.add(time_btn).on_hover_text("Klikk (eller trykk Mellomrom) for å veksle fokus/pause").clicked() {
+                    self.flow.toggle();
+                }
+
+                ui.add_space(4.0);
+                ui.label(RichText::new(tag).size(11.0).strong().color(border_color));
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Ekspander-knapp for full visning
+                    if ui
+                        .button(RichText::new("⛶").size(15.0).color(Color32::from_rgb(180, 185, 200)))
+                        .on_hover_text("Åpne fullt panel (RAM-dump, Side-quests osv.)")
+                        .clicked()
+                    {
+                        self.toggle_hud_mode(ctx);
+                    }
+                });
+            });
+        });
+
+        res.response.context_menu(|ui| {
+            if ui.button("⛶ Åpne fullt panel").clicked() {
+                self.toggle_hud_mode(ctx);
+                ui.close_menu();
+            }
+            if ui.button("⏹ Nullstill økt").clicked() {
+                self.flow.reset();
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui.button("✕ Avslutt Tether").clicked() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                ui.close_menu();
+            }
+        });
+    }
+
     fn render_flowmodoro(&mut self, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
             ui.add_space(16.0);
