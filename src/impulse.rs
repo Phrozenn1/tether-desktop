@@ -33,4 +33,13 @@ impl ImpulseState {
         self.feedback = Some("Strøtanke forankret! ⚓ Tilbake til flyten.".to_string());
         Ok(())
     }
+
+    pub fn remove(&mut self, index: usize) -> Result<(), std::io::Error> {
+        if index < self.items.len() {
+            self.items.remove(index);
+            storage::save_all_impulses(&self.items)?;
+            self.feedback = Some("Oppgave fullført og fjernet! ✓".to_string());
+        }
+        Ok(())
+    }
 }

@@ -11,8 +11,8 @@ fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_app_id("tether")
-            .with_inner_size([250.0, 60.0])
-            .with_min_inner_size([180.0, 50.0])
+            .with_inner_size([260.0, 46.0])
+            .with_min_inner_size([180.0, 40.0])
             .with_title("Tether — ADHD Flow & Save-State")
             .with_always_on_top()
             .with_decorations(false)

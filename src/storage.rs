@@ -47,6 +47,16 @@ pub fn load_impulses() -> Vec<String> {
     Vec::new()
 }
 
+pub fn save_all_impulses(items: &[String]) -> Result<(), std::io::Error> {
+    let dir = ensure_data_dir()?;
+    let file_path = dir.join("impulses.md");
+    let mut file = std::fs::File::create(file_path)?;
+    for item in items {
+        writeln!(file, "{}", item)?;
+    }
+    Ok(())
+}
+
 pub fn append_ramdump(now: &str, status: &str, next_step: &str) -> Result<(), std::io::Error> {
     let dir = ensure_data_dir()?;
     let file_path = dir.join("ramdumps.md");

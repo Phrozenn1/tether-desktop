@@ -13,6 +13,8 @@ pub struct Flowmodoro {
     pub break_ratio: u32,
     pub elapsed_focus_secs: u64,
     pub remaining_break_secs: u64,
+    pub initial_break_secs: u64,
+    pub total_focus_secs: u64,
     accumulator: Duration,
 }
 
@@ -24,6 +26,8 @@ impl Default for Flowmodoro {
             break_ratio: 15,
             elapsed_focus_secs: 0,
             remaining_break_secs: 0,
+            initial_break_secs: 0,
+            total_focus_secs: 0,
             accumulator: Duration::ZERO,
         }
     }
@@ -74,6 +78,7 @@ impl Flowmodoro {
 
         self.state = FlowState::Break;
         self.remaining_break_secs = break_secs;
+        self.initial_break_secs = break_secs;
         self.accumulator = Duration::ZERO;
 
         notify(
@@ -112,6 +117,7 @@ impl Flowmodoro {
             match self.state {
                 FlowState::Focus => {
                     self.elapsed_focus_secs += 1;
+                    self.total_focus_secs += 1;
                 }
                 FlowState::Break => {
                     if self.remaining_break_secs > 0 {
@@ -136,6 +142,23 @@ impl Flowmodoro {
             FlowState::Focus => format_time(self.elapsed_focus_secs),
             FlowState::Break => format_time(self.remaining_break_secs),
             FlowState::Idle => "00:00".to_string(),
+        }
+    }
+
+    pub fn progress_pct(&self) -> f32 {
+        match self.state {
+            FlowState::Idle => 0.0,
+            FlowState::Focus => {
+                let target = (self.focus_ratio as f32 * 60.0).max(60.0);
+                (self.elapsed_focus_secs as f32 / target).clamp(0.0, 1.0)
+            }
+            FlowState::Break => {
+                if self.initial_break_secs == 0 {
+                    0.0
+                } else {
+                    (self.remaining_break_secs as f32 / self.initial_break_secs as f32).clamp(0.0, 1.0)
+                }
+            }
         }
     }
 }
