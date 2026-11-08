@@ -33,7 +33,7 @@ impl Default for TetherApp {
             impulse: ImpulseState::new(),
             active_tab: ActiveTab::Flowmodoro,
             always_on_top: true,
-            is_mini_hud: true, // Starter som standard som et lite flytende HUD-vindu
+            is_mini_hud: true,
             last_update: Instant::now(),
             current_yak_idx: 0,
             yak_jabs: vec![
@@ -79,11 +79,11 @@ impl TetherApp {
         cc.egui_ctx.set_fonts(fonts);
 
         // Ethereal Theme Palette
-        let bg_base = Color32::from_rgb(6, 11, 30); // #060B1E
-        let panel_bg = Color32::from_rgb(10, 16, 40); // #0A1028
+        let bg_base = Color32::from_rgb(6, 11, 30);
+        let panel_bg = Color32::from_rgb(10, 16, 40);
         let card_bg = Color32::from_rgb(16, 24, 56);
-        let border_subtle = Color32::from_rgba_premultiplied(109, 125, 182, 60); // #6d7db6
-        let accent = Color32::from_rgb(125, 130, 217); // #7d82d9
+        let border_subtle = Color32::from_rgba_premultiplied(109, 125, 182, 60);
+        let accent = Color32::from_rgb(125, 130, 217);
         let text_primary = Color32::from_rgb(255, 235, 220);
 
         let mut visuals = egui::Visuals::dark();
@@ -118,10 +118,86 @@ impl TetherApp {
         self.is_mini_hud = !self.is_mini_hud;
         if self.is_mini_hud {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(260.0, 46.0)));
+            #[cfg(target_os = "linux")]
+            hyprland_shrink();
         } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(460.0, 580.0)));
+            #[cfg(target_os = "linux")]
+            hyprland_expand();
         }
     }
+}
+
+fn hyprland_expand() {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            std::thread::spawn(|| {
+                let _ = std::process::Command::new("hyprctl")
+                    .args([
+                        "dispatch",
+                        "hl.dsp.window.resize({ x = 460, y = 580, relative = false, window = \"class:tether\" })",
+                    ])
+                    .output();
+                let _ = std::process::Command::new("hyprctl")
+                    .args([
+                        "dispatch",
+                        "hl.dsp.window.center({ window = \"class:tether\" })",
+                    ])
+                    .output();
+            });
+        }
+    }
+}
+
+fn hyprland_shrink() {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            std::thread::spawn(|| {
+                let target_x = get_current_monitor_top_right_x();
+                let _ = std::process::Command::new("hyprctl")
+                    .args([
+                        "dispatch",
+                        "hl.dsp.window.resize({ x = 260, y = 46, relative = false, window = \"class:tether\" })",
+                    ])
+                    .output();
+                let move_cmd = format!(
+                    "hl.dsp.window.move({{ x = {}, y = 48, relative = false, window = \"class:tether\" }})",
+                    target_x
+                );
+                let _ = std::process::Command::new("hyprctl")
+                    .args(["dispatch", &move_cmd])
+                    .output();
+            });
+        }
+    }
+}
+
+fn get_current_monitor_top_right_x() -> i32 {
+    let clients_out = std::process::Command::new("hyprctl").args(["clients", "-j"]).output();
+    let mon_id = if let Ok(out) = clients_out {
+        if let Ok(clients) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+            clients.as_array().and_then(|arr| {
+                arr.iter().find(|c| c["class"] == "tether").and_then(|c| c["monitor"].as_i64())
+            }).unwrap_or(0)
+        } else { 0 }
+    } else { 0 };
+
+    if let Ok(out) = std::process::Command::new("hyprctl").args(["monitors", "-j"]).output() {
+        if let Ok(mons) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+            if let Some(arr) = mons.as_array() {
+                if let Some(m) = arr.iter().find(|m| m["id"] == mon_id) {
+                    let x = m["x"].as_f64().unwrap_or(0.0);
+                    let w = m["width"].as_f64().unwrap_or(1920.0);
+                    let scale = m["scale"].as_f64().unwrap_or(1.0);
+                    let logical_w = w / scale;
+                    return (x + logical_w - 284.0) as i32;
+                }
+            }
+        }
+    }
+    1636
 }
 
 impl eframe::App for TetherApp {
@@ -136,13 +212,17 @@ impl eframe::App for TetherApp {
 
         self.flow.tick(dt);
 
-        if self.flow.is_active() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(200));
-        }
+        // Alltid oppdater med jevne mellomrom så vi fanger opp synkronisering fra Neovim
+        ctx.request_repaint_after(std::time::Duration::from_millis(300));
 
         // Global tastatursnarvei (Mellomrom = Toggle Flowmodoro)
         if ctx.input(|i| i.key_pressed(egui::Key::Space)) && !ctx.wants_keyboard_input() {
             self.flow.toggle();
+        }
+
+        // Escape krymper fullt dashboard tilbake til Mini-HUD
+        if !self.is_mini_hud && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.toggle_hud_mode(ctx);
         }
 
         // Mini-HUD modus (kompakt flytende pill i hjørnet)
@@ -254,10 +334,13 @@ impl TetherApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Ekspander til fullt dashboard
                     let expand_btn = egui::Button::new(
-                        RichText::new("⛶").size(15.0).color(Color32::from_rgb(180, 190, 220)),
+                        RichText::new("⛶").size(15.0).color(Color32::from_rgb(200, 210, 240)),
                     )
-                    .frame(false);
-                    if ui.add(expand_btn).on_hover_text("Åpne fullt panel (RAM-dump, Side-quests osv.)").clicked() {
+                    .min_size(Vec2::new(26.0, 26.0))
+                    .rounding(6.0)
+                    .fill(Color32::from_rgba_premultiplied(37, 46, 86, 150));
+
+                    if ui.add(expand_btn).on_hover_text("Åpne/lukk fullt dashboard (Dobbeltklikk virker også)").clicked() {
                         self.toggle_hud_mode(ctx);
                     }
 
@@ -270,6 +353,7 @@ impl TetherApp {
                     let act_btn = egui::Button::new(
                         RichText::new(action_icon).size(13.0).color(border_color),
                     )
+                    .min_size(Vec2::new(24.0, 24.0))
                     .frame(false);
                     if ui.add(act_btn).on_hover_text("Skift modus").clicked() {
                         self.flow.toggle();
@@ -288,6 +372,11 @@ impl TetherApp {
                 ui.painter().rect_filled(bar_rect, 1.0, border_color);
             }
         });
+
+        // Dobbeltklikk hvor som helst på pillen ekspanderer også
+        if res.response.double_clicked() {
+            self.toggle_hud_mode(ctx);
+        }
 
         res.response.context_menu(|ui| {
             if ui.button("⛶ Åpne fullt panel").clicked() {
@@ -313,94 +402,96 @@ impl TetherApp {
             FlowState::Idle => (Color32::from_rgb(125, 130, 217), "KLAR"),
         };
 
-        // Header
-        egui::TopBottomPanel::top("top_header")
-            .frame(
-                egui::Frame::none()
-                    .fill(Color32::from_rgb(10, 16, 40))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(109, 125, 182, 50)))
-                    .inner_margin(egui::Margin::symmetric(14.0, 10.0)),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    let header_title = ui.heading(
-                        RichText::new("⚓ TETHER")
-                            .strong()
-                            .color(Color32::from_rgb(255, 235, 220)),
-                    );
-                    if header_title.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-                    }
-                    if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) && header_title.hovered() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                    }
-
-                    // Status chip
-                    egui::Frame::none()
-                        .fill(Color32::from_rgba_premultiplied(37, 46, 86, 180))
-                        .stroke(Stroke::new(1.0_f32, border_color))
-                        .rounding(4.0)
-                        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
-                        .show(ui, |ui| {
-                            ui.label(RichText::new(status_text).size(10.0).strong().color(border_color));
-                        });
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Lukk
-                        if ui
-                            .button(RichText::new("✕").size(14.0).color(Color32::from_rgb(180, 190, 220)))
-                            .on_hover_text("Lukk programmet")
-                            .clicked()
-                        {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-
-                        // Krymp til Mini-HUD
-                        let mini_btn = egui::Button::new(
-                            RichText::new("🗕 Mini-HUD")
-                                .size(11.5)
-                                .strong()
-                                .color(Color32::from_rgb(125, 130, 217)),
-                        );
-                        if ui.add(mini_btn).on_hover_text("Minimer til flytende hjørne-HUD").clicked() {
-                            self.toggle_hud_mode(ctx);
-                        }
-
-                        // Fest øverst
-                        if ui.checkbox(&mut self.always_on_top, "📌 Alltid øverst").changed() {
-                            let level = if self.always_on_top {
-                                egui::WindowLevel::AlwaysOnTop
-                            } else {
-                                egui::WindowLevel::Normal
-                            };
-                            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
-                        }
-                    });
-                });
-
-                ui.add_space(8.0);
-
-                // Segmentert fane-velger (Pill Tabs)
-                ui.horizontal(|ui| {
-                    self.render_tab_pill(ui, ActiveTab::Flowmodoro, "⏱ Flowmodoro");
-                    self.render_tab_pill(ui, ActiveTab::RamDump, "🧠 RAM-Dump");
-                    self.render_tab_pill(ui, ActiveTab::Impulses, "💡 Side-Quests");
-                    self.render_tab_pill(ui, ActiveTab::YakShaving, "🪒 Yak-Alarm");
-                });
-            });
-
-        // Hovedinnhold
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
                     .fill(Color32::from_rgb(6, 11, 30))
-                    .inner_margin(16.0),
+                    .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(109, 125, 182, 80)))
+                    .rounding(16.0),
             )
-            .show(ctx, |ui| match self.active_tab {
-                ActiveTab::Flowmodoro => self.render_flowmodoro(ui),
-                ActiveTab::RamDump => self.render_ramdump(ui),
-                ActiveTab::Impulses => self.render_impulses(ui),
-                ActiveTab::YakShaving => self.render_yak_shaving(ui),
+            .show(ctx, |ui| {
+                // Header
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(10, 16, 40))
+                    .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(109, 125, 182, 50)))
+                    .rounding(egui::Rounding { nw: 16.0, ne: 16.0, sw: 0.0, se: 0.0 })
+                    .inner_margin(egui::Margin::symmetric(14.0, 10.0))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let header_title = ui.heading(
+                                RichText::new("⚓ TETHER")
+                                    .strong()
+                                    .color(Color32::from_rgb(255, 235, 220)),
+                            );
+                            if header_title.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                            }
+                            if ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) && header_title.hovered() {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                            }
+
+                            // Status chip
+                            egui::Frame::none()
+                                .fill(Color32::from_rgba_premultiplied(37, 46, 86, 180))
+                                .stroke(Stroke::new(1.0_f32, border_color))
+                                .rounding(4.0)
+                                .inner_margin(egui::Margin::symmetric(6.0, 2.0))
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new(status_text).size(10.0).strong().color(border_color));
+                                });
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                // Lukk
+                                if ui
+                                    .button(RichText::new("✕").size(14.0).color(Color32::from_rgb(180, 190, 220)))
+                                    .on_hover_text("Lukk programmet")
+                                    .clicked()
+                                {
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                }
+
+                                // Krymp til Mini-HUD
+                                let mini_btn = egui::Button::new(
+                                    RichText::new("🗕 Mini-HUD")
+                                        .size(11.5)
+                                        .strong()
+                                        .color(Color32::from_rgb(125, 130, 217)),
+                                );
+                                if ui.add(mini_btn).on_hover_text("Minimer til flytende hjørne-HUD (Esc)").clicked() {
+                                    self.toggle_hud_mode(ctx);
+                                }
+
+                                // Fest øverst
+                                if ui.checkbox(&mut self.always_on_top, "📌 Alltid øverst").changed() {
+                                    let level = if self.always_on_top {
+                                        egui::WindowLevel::AlwaysOnTop
+                                    } else {
+                                        egui::WindowLevel::Normal
+                                    };
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+                                }
+                            });
+                        });
+
+                        ui.add_space(8.0);
+
+                        // Segmentert fane-velger (Pill Tabs)
+                        ui.horizontal(|ui| {
+                            self.render_tab_pill(ui, ActiveTab::Flowmodoro, "⏱ Flowmodoro");
+                            self.render_tab_pill(ui, ActiveTab::RamDump, "🧠 RAM-Dump");
+                            self.render_tab_pill(ui, ActiveTab::Impulses, "💡 Side-Quests");
+                            self.render_tab_pill(ui, ActiveTab::YakShaving, "🪒 Yak-Alarm");
+                        });
+                    });
+
+                // Hovedinnhold i fane
+                ui.add_space(10.0);
+                match self.active_tab {
+                    ActiveTab::Flowmodoro => self.render_flowmodoro(ui),
+                    ActiveTab::RamDump => self.render_ramdump(ui),
+                    ActiveTab::Impulses => self.render_impulses(ui),
+                    ActiveTab::YakShaving => self.render_yak_shaving(ui),
+                }
             });
     }
 
@@ -439,14 +530,14 @@ impl TetherApp {
         };
 
         ui.vertical_centered(|ui| {
-            ui.add_space(10.0);
+            ui.add_space(6.0);
 
             // Hovedkort med klokke og status
             egui::Frame::none()
                 .fill(Color32::from_rgb(12, 18, 46))
                 .stroke(Stroke::new(1.5_f32, border_color))
                 .rounding(16.0)
-                .inner_margin(egui::Margin::symmetric(24.0, 20.0))
+                .inner_margin(egui::Margin::symmetric(24.0, 18.0))
                 .show(ui, |ui| {
                     ui.label(RichText::new(status_text).size(12.0).strong().color(border_color));
                     ui.add_space(4.0);
@@ -470,7 +561,7 @@ impl TetherApp {
                     ui.label(RichText::new(sub_info).size(11.5).color(Color32::from_rgb(160, 170, 200)));
                 });
 
-            ui.add_space(20.0);
+            ui.add_space(18.0);
 
             // Handlingsknapper
             ui.horizontal(|ui| {
@@ -509,7 +600,7 @@ impl TetherApp {
                     .color(Color32::from_rgb(120, 130, 160)),
             );
 
-            ui.add_space(20.0);
+            ui.add_space(18.0);
 
             // Forholdstall og dagens statistikk
             egui::Frame::none()

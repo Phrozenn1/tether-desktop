@@ -1,6 +1,41 @@
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SharedFlowState {
+    pub state: String, // "idle" | "focus" | "break"
+    pub start_epoch: u64,
+    pub break_duration_sec: u64,
+    pub elapsed_focus_sec: u64,
+    pub remaining_break_sec: u64,
+    pub focus_ratio: u32,
+    pub break_ratio: u32,
+    pub writer: String, // "desktop" | "nvim"
+    pub seq: u64,
+    pub timestamp: u64,
+}
+
+pub fn save_shared_state(state: &SharedFlowState) -> Result<(), std::io::Error> {
+    let dir = ensure_data_dir()?;
+    let file_path = dir.join("flow_state.json");
+    let json = serde_json::to_string_pretty(state)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(file_path, json)?;
+    Ok(())
+}
+
+pub fn load_shared_state() -> Option<SharedFlowState> {
+    let dir = get_data_dir();
+    let file_path = dir.join("flow_state.json");
+    if let Ok(bytes) = std::fs::read(file_path) {
+        if let Ok(state) = serde_json::from_slice::<SharedFlowState>(&bytes) {
+            return Some(state);
+        }
+    }
+    None
+}
 
 pub fn get_data_dir() -> PathBuf {
     if let Some(state_dir) = dirs::state_dir() {
