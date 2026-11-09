@@ -1,10 +1,10 @@
 [package]
 name = "tether-desktop"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 
 [dependencies]
-libadwaita = { version = "0.9", features = ["v1_6"] }
+libadwaita = { version = "0.9", features = ["v1_5"] }
 gtk4 = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

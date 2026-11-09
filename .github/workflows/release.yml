@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Target GitHub Release tag to attach assets to (e.g. v1.0.0)'
+        description: 'Target GitHub Release tag to attach assets to (e.g. v1.0.1)'
         required: false
-        default: 'v1.0.0'
+        default: 'v1.0.1'
 
 permissions:
   contents: write
@@ -22,15 +22,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            output_file: tether-windows-x86_64.zip
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            output_file: Tether-macos.dmg
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             output_file: tether-linux-x86_64.tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            output_file: Tether-macos.dmg
 
     steps:
       - name: Checkout repository
@@ -43,18 +40,16 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-dev libxkbcommon-dev libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libgtk-4-dev libadwaita-1-dev
+
+      - name: Install macOS dependencies
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install gtk4 libadwaita pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix gtk4)/lib/pkgconfig:$(brew --prefix libadwaita)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Build release binary
         run: cargo build --release
-
-      # Windows: package .exe into .zip
-      - name: Package Windows
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        run: |
-          cp target/release/tether-desktop.exe tether.exe
-          7z a tether-windows-x86_64.zip tether.exe
 
       # macOS: create .app bundle and .dmg image
       - name: Package macOS DMG
@@ -78,7 +73,7 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>1.0.0</string>
+              <string>1.0.1</string>
               <key>LSMinimumSystemVersion</key>
               <string>10.15</string>
               <key>NSHighResolutionCapable</key>
