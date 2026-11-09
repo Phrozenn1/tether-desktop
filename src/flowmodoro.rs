@@ -88,7 +88,7 @@ impl Flowmodoro {
     pub fn check_external_sync(&mut self) {
         if let Some(shared) = storage::load_shared_state() {
             let is_new_seq = shared.seq != self.last_synced_seq;
-            let is_external = shared.writer == "nvim";
+            let is_external = shared.writer == "nvim" || shared.writer == "vscode";
             let is_startup_recovery = self.last_synced_seq == 0 && shared.state != "idle" && self.state == FlowState::Idle;
 
             if (is_external && is_new_seq) || is_startup_recovery {
