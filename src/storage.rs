@@ -148,6 +148,8 @@ pub struct TetherSettings {
     #[serde(default)]
     pub editor_minimize_action: Option<EditorMinimizeAction>,
     #[serde(default)]
+    pub editor_minimize_map: std::collections::HashMap<String, EditorMinimizeAction>,
+    #[serde(default)]
     pub nvim_plugin_manager: crate::editor::NvimPluginManager,
     #[serde(default = "default_terminal_command")]
     pub terminal_command: String,
@@ -193,6 +195,7 @@ impl Default for TetherSettings {
             editor_type: crate::editor::EditorType::Auto,
             auto_launch_desktop: false,
             editor_minimize_action: None,
+            editor_minimize_map: std::collections::HashMap::new(),
             nvim_plugin_manager: crate::editor::NvimPluginManager::Lazy,
             terminal_command: default_terminal_command(),
             notifications_enabled: true,
@@ -208,6 +211,21 @@ impl Default for TetherSettings {
     }
 }
 
+impl TetherSettings {
+    pub fn get_minimize_action_for_editor(&self, editor: crate::editor::EditorType) -> EditorMinimizeAction {
+        let key = editor.id();
+        if let Some(act) = self.editor_minimize_map.get(key) {
+            return *act;
+        }
+        self.editor_minimize_action.unwrap_or(EditorMinimizeAction::Tray)
+    }
+
+    pub fn set_minimize_action_for_editor(&mut self, editor: crate::editor::EditorType, action: EditorMinimizeAction) {
+        let key = editor.id();
+        self.editor_minimize_map.insert(key.to_string(), action);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SharedFlowState {
     pub state: String, // "idle" | "focus" | "break"
@@ -215,6 +233,8 @@ pub struct SharedFlowState {
     pub break_duration_sec: u64,
     pub elapsed_focus_sec: u64,
     pub remaining_break_sec: u64,
+    #[serde(default)]
+    pub banked_break_sec: u64,
     pub focus_ratio: u32,
     pub break_ratio: u32,
     pub writer: String, // "desktop" | "nvim"

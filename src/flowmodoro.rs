@@ -20,6 +20,8 @@ pub struct Flowmodoro {
     pub total_focus_secs: u64,
     pub start_epoch: u64,
     pub break_duration_sec: u64,
+    pub banked_break_secs: u64,
+    pub focus_at_last_break: u64,
     pub seq: u64,
     pub last_synced_seq: u64,
     accumulator: Duration,
@@ -38,6 +40,8 @@ impl Default for Flowmodoro {
             total_focus_secs: 0,
             start_epoch: 0,
             break_duration_sec: 0,
+            banked_break_secs: 0,
+            focus_at_last_break: 0,
             seq: 0,
             last_synced_seq: 0,
             accumulator: Duration::ZERO,
@@ -75,6 +79,7 @@ impl Flowmodoro {
             break_duration_sec: self.break_duration_sec,
             elapsed_focus_sec: self.elapsed_focus_secs,
             remaining_break_sec: self.remaining_break_secs,
+            banked_break_sec: self.banked_break_secs,
             focus_ratio: self.focus_ratio,
             break_ratio: self.break_ratio,
             writer: "desktop".to_string(),
@@ -117,6 +122,8 @@ impl Flowmodoro {
                         } else {
                             shared.elapsed_focus_sec
                         };
+                        self.banked_break_secs = shared.banked_break_sec;
+                        self.focus_at_last_break = self.elapsed_focus_secs;
                     }
                     "break" => {
                         self.state = FlowState::Break;
@@ -134,6 +141,8 @@ impl Flowmodoro {
                         self.state = FlowState::Idle;
                         self.elapsed_focus_secs = 0;
                         self.remaining_break_secs = 0;
+                        self.banked_break_secs = 0;
+                        self.focus_at_last_break = 0;
                         self.start_epoch = 0;
                     }
                 }
@@ -144,6 +153,8 @@ impl Flowmodoro {
     pub fn start_micro_start(&mut self) {
         self.state = FlowState::MicroStart;
         self.elapsed_focus_secs = 0;
+        self.banked_break_secs = 0;
+        self.focus_at_last_break = 0;
         self.micro_remaining_secs = 300;
         self.accumulator = Duration::ZERO;
         self.start_epoch = now_epoch();
@@ -168,6 +179,8 @@ impl Flowmodoro {
     pub fn start_focus(&mut self) {
         self.state = FlowState::Focus;
         self.elapsed_focus_secs = 0;
+        self.banked_break_secs = 0;
+        self.focus_at_last_break = 0;
         self.accumulator = Duration::ZERO;
         self.start_epoch = now_epoch();
         self.seq += 1;
@@ -178,14 +191,20 @@ impl Flowmodoro {
     }
 
     pub fn calculate_break_time(&self) -> u64 {
+        let newly_focused = self.elapsed_focus_secs.saturating_sub(self.focus_at_last_break);
         let f_base = self.focus_ratio.max(1) as f64;
         let b_base = self.break_ratio.max(1) as f64;
-        let earned = (self.elapsed_focus_secs as f64) * (b_base / f_base);
-        (earned as u64).max(30)
+        let newly_earned = ((newly_focused as f64) * (b_base / f_base)) as u64;
+        let total = self.banked_break_secs + newly_earned;
+        if total > 0 || self.elapsed_focus_secs >= 10 {
+            total.max(30)
+        } else {
+            0
+        }
     }
 
     pub fn start_break(&mut self) {
-        if self.elapsed_focus_secs < 10 {
+        if self.elapsed_focus_secs < 10 && self.banked_break_secs == 0 {
             self.reset();
             return;
         }
@@ -198,6 +217,8 @@ impl Flowmodoro {
         self.remaining_break_secs = break_secs;
         self.initial_break_secs = break_secs;
         self.break_duration_sec = break_secs;
+        self.banked_break_secs = 0;
+        self.focus_at_last_break = self.elapsed_focus_secs;
         self.start_epoch = now_epoch();
         self.accumulator = Duration::ZERO;
         self.seq += 1;
@@ -213,12 +234,48 @@ impl Flowmodoro {
         );
     }
 
+    pub fn resume_focus_from_break(&mut self) {
+        let now = now_epoch();
+        if self.start_epoch > 0 && self.break_duration_sec > 0 {
+            let elapsed = if now >= self.start_epoch {
+                now - self.start_epoch
+            } else {
+                0
+            };
+            self.remaining_break_secs = self.break_duration_sec.saturating_sub(elapsed);
+        }
+
+        // Ta vare på de gjenværende pauseminuttene så de legges til ny beregnet pause
+        self.banked_break_secs = self.remaining_break_secs;
+        self.remaining_break_secs = 0;
+        self.break_duration_sec = 0;
+
+        // Fortsett fokus der den slapp
+        self.state = FlowState::Focus;
+        self.start_epoch = now.saturating_sub(self.elapsed_focus_secs);
+        self.focus_at_last_break = self.elapsed_focus_secs;
+        self.accumulator = Duration::ZERO;
+        self.seq += 1;
+        self.last_synced_seq = self.seq;
+        self.broadcast_state();
+
+        let focus_fmt = format_time(self.elapsed_focus_secs);
+        let banked_fmt = format_time(self.banked_break_secs);
+        notify(
+            "Fokus gjenopptatt 🚀",
+            &format!(
+                "Fortsetter fokusøkt fra {}.\nDu har {} pause spart til gode!",
+                focus_fmt, banked_fmt
+            ),
+        );
+    }
+
     pub fn toggle(&mut self) {
         match self.state {
             FlowState::Idle => self.start_focus(),
             FlowState::MicroStart => self.cancel_micro_start(),
             FlowState::Focus => self.start_break(),
-            FlowState::Break => self.reset(),
+            FlowState::Break => self.resume_focus_from_break(),
         }
     }
 
@@ -226,6 +283,8 @@ impl Flowmodoro {
         self.state = FlowState::Idle;
         self.elapsed_focus_secs = 0;
         self.remaining_break_secs = 0;
+        self.banked_break_secs = 0;
+        self.focus_at_last_break = 0;
         self.start_epoch = 0;
         self.break_duration_sec = 0;
         self.accumulator = Duration::ZERO;
@@ -291,6 +350,8 @@ impl Flowmodoro {
                     self.state = FlowState::Idle;
                     self.start_epoch = 0;
                     self.break_duration_sec = 0;
+                    self.banked_break_secs = 0;
+                    self.focus_at_last_break = 0;
                     self.seq += 1;
                     self.last_synced_seq = self.seq;
                     self.broadcast_state();
@@ -354,4 +415,60 @@ fn notify(title: &str, body: &str) {
         .body(body)
         .timeout(notify_rust::Timeout::Milliseconds(6000))
         .show();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_break_resume_banks_unspent_pause_and_continues_focus() {
+        let mut f = Flowmodoro::default();
+        f.focus_ratio = 45;
+        f.break_ratio = 15;
+
+        // 1. Fokus i 45 minutter (2700s)
+        f.start_focus();
+        f.elapsed_focus_secs = 2700;
+
+        // 2. Start pause: 15 minutter (900s) opptjent
+        f.start_break();
+        assert_eq!(f.state, FlowState::Break);
+        assert_eq!(f.remaining_break_secs, 900);
+        assert_eq!(f.banked_break_secs, 0);
+
+        // 3. Bruker bruker 5 minutter, 10 minutter (600s) gjenstår
+        f.remaining_break_secs = 600;
+        f.break_duration_sec = 600;
+        f.start_epoch = now_epoch();
+
+        // 4. Bruker klikker "Avslutt pause" for å fortsette fokusøkt
+        f.resume_focus_from_break();
+        assert_eq!(f.state, FlowState::Focus);
+        assert_eq!(f.elapsed_focus_secs, 2700); // Fokus fortsetter nøyaktig der den slapp!
+        assert_eq!(f.banked_break_secs, 600);   // De 10 gjenstående minuttene er trygt spart!
+        assert_eq!(f.remaining_break_secs, 0);
+
+        // 5. Bruker jobber i 15 minutter til (900s) -> totalt 3600s (60 min)
+        f.elapsed_focus_secs = 3600;
+
+        // 6. Beregn tilgjengelig pause:
+        // Ny fokus: 3600 - 2700 = 900s (15 min) -> ny opptjent = 300s (5 min).
+        // Total pause = 600s (spart) + 300s (ny) = 900s (15 min)!
+        let break_time = f.calculate_break_time();
+        assert_eq!(break_time, 900);
+
+        // 7. Start ny pause
+        f.start_break();
+        assert_eq!(f.state, FlowState::Break);
+        assert_eq!(f.remaining_break_secs, 900);
+        assert_eq!(f.banked_break_secs, 0);
+
+        // 8. Kun eksplisitt nullstill sletter pausene og fokustiden
+        f.reset();
+        assert_eq!(f.state, FlowState::Idle);
+        assert_eq!(f.elapsed_focus_secs, 0);
+        assert_eq!(f.remaining_break_secs, 0);
+        assert_eq!(f.banked_break_secs, 0);
+    }
 }

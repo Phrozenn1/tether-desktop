@@ -101,6 +101,21 @@ impl EditorType {
         }
     }
 
+    pub fn detected_editors() -> Vec<EditorType> {
+        let candidates = [
+            EditorType::Neovim,
+            EditorType::VSCode,
+            EditorType::VSCodium,
+            EditorType::Cursor,
+            EditorType::Neovide,
+            EditorType::Helix,
+        ];
+        candidates
+            .into_iter()
+            .filter(|e| e.binary_name().is_some() && e.is_installed())
+            .collect()
+    }
+
     /// Resolves `Auto` to the most relevant installed editor (or `None`), factoring in anchor & running processes.
     pub fn resolve_context(&self, anchor: Option<&ContextAnchor>) -> EditorType {
         match self {
@@ -544,7 +559,7 @@ pub fn install_vscode_extension(editor: EditorType) -> Result<String, String> {
     Ok(format!("Klargjort for integrasjon med {}.", editor.display_name()))
 }
 
-pub fn is_editor_focused() -> bool {
+pub fn get_focused_editor() -> Option<EditorType> {
     #[cfg(target_os = "linux")]
     {
         if let Ok(out) = std::process::Command::new("hyprctl").args(["activewindow", "-j"]).output() {
@@ -553,21 +568,37 @@ pub fn is_editor_focused() -> bool {
                 let title = val.get("title").and_then(|t| t.as_str()).unwrap_or("").to_lowercase();
                 let init_title = val.get("initialTitle").and_then(|t| t.as_str()).unwrap_or("").to_lowercase();
 
-                if class.contains("code") || class.contains("vscodium") || class.contains("cursor") || class.contains("neovide") {
-                    return true;
+                if class.contains("code") {
+                    return Some(EditorType::VSCode);
+                }
+                if class.contains("vscodium") {
+                    return Some(EditorType::VSCodium);
+                }
+                if class.contains("cursor") {
+                    return Some(EditorType::Cursor);
+                }
+                if class.contains("neovide") {
+                    return Some(EditorType::Neovide);
+                }
+                if title.contains("helix") || class.contains("helix") || title.contains("hx") {
+                    return Some(EditorType::Helix);
                 }
                 if title.contains("nvim") || title.contains("neovim") || init_title.contains("nvim") {
-                    return true;
+                    return Some(EditorType::Neovim);
                 }
                 if let Some(pid) = val.get("pid").and_then(|p| p.as_i64()) {
                     if let Ok(pgrep) = std::process::Command::new("pgrep").args(["-P", &pid.to_string(), "nvim"]).output() {
                         if !pgrep.stdout.is_empty() {
-                            return true;
+                            return Some(EditorType::Neovim);
                         }
                     }
                 }
             }
         }
     }
-    false
+    None
+}
+
+pub fn is_editor_focused() -> bool {
+    get_focused_editor().is_some()
 }

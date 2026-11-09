@@ -31,6 +31,7 @@ pub struct AppState {
     pub last_anchor_check: Instant,
     pub last_stats_check: Instant,
     pub last_pos_check: Instant,
+    pub last_recorded_focus_mins: u64,
     pub is_mini_hud: bool,
     pub suppress_pos_ticks: u32,
     pub asked_editor_minimize_prompt: bool,
@@ -149,6 +150,7 @@ impl TetherUi {
             last_anchor_check: Instant::now(),
             last_stats_check: Instant::now(),
             last_pos_check: Instant::now(),
+            last_recorded_focus_mins: 0,
             is_mini_hud: false,
             suppress_pos_ticks: 0,
             asked_editor_minimize_prompt: false,
@@ -704,12 +706,47 @@ impl TetherUi {
             None => 0,
         };
         let editor_minimize_combo = ComboRow::builder()
-            .title("Minimering ved bruk av editor")
-            .subtitle("Hva som skjer med Tether-vinduet når du koder i editoren")
+            .title("Minimering (standard for andre editorer)")
+            .subtitle("Standard handling når en ukjent eller ukonfigurert editor fokuseres")
             .model(&minimize_models)
             .selected(minimize_idx)
             .build();
         set_editor_group.add(&editor_minimize_combo);
+
+        // Separate minimerings-innstillinger per oppdagede editor
+        let detected = crate::editor::EditorType::detected_editors();
+        for ed in &detected {
+            let ed_models = gtk4::StringList::new(&[
+                "Minimer til system-tray (skjul vindu)",
+                "Minimer til Mini-HUD (lite hjørnevindu)",
+                "Ikke minimer (behold fullt vindu)",
+            ]);
+            let act = initial_settings.get_minimize_action_for_editor(*ed);
+            let idx = match act {
+                storage::EditorMinimizeAction::Tray => 0,
+                storage::EditorMinimizeAction::MiniHud => 1,
+                storage::EditorMinimizeAction::KeepOpen => 2,
+            };
+            let row = ComboRow::builder()
+                .title(&format!("Minimering for {}", ed.display_name()))
+                .subtitle(&format!("Hva som skjer med Tether når du fokuserer {}", ed.display_name()))
+                .model(&ed_models)
+                .selected(idx)
+                .build();
+            let state_clone = state.clone();
+            let ed_val = *ed;
+            row.connect_selected_notify(move |combo| {
+                let act = match combo.selected() {
+                    0 => storage::EditorMinimizeAction::Tray,
+                    1 => storage::EditorMinimizeAction::MiniHud,
+                    _ => storage::EditorMinimizeAction::KeepOpen,
+                };
+                let mut st = state_clone.borrow_mut();
+                st.settings.set_minimize_action_for_editor(ed_val, act);
+                let _ = storage::save_settings(&st.settings);
+            });
+            set_editor_group.add(&row);
+        }
 
         let nvim_cmd_entry = EntryRow::builder()
             .title("Terminalkommando (for terminal-editorer som Neovim/Helix)")
@@ -1619,16 +1656,28 @@ impl TetherUi {
                 st.previous_state = cur;
                 st.audio.handle_flow_state_transition(old, cur);
 
-                // Stats update on state transition
+                // Stats update on state transition (unngå duplisering ved gjenopptatt fokus)
                 if old == FlowState::Focus && (cur == FlowState::Break || cur == FlowState::Idle) {
-                    let focus_mins = st.flow.elapsed_focus_secs / 60;
-                    if focus_mins > 0 {
-                        st.stats.record_focus_minutes(focus_mins);
+                    let total_mins = st.flow.elapsed_focus_secs / 60;
+                    let newly_mins = total_mins.saturating_sub(st.last_recorded_focus_mins);
+                    if newly_mins > 0 {
+                        st.stats.record_focus_minutes(newly_mins);
+                        st.last_recorded_focus_mins = total_mins;
                         let _ = storage::save_user_stats(&st.stats);
                     }
                 } else if old == FlowState::MicroStart && cur == FlowState::Focus {
                     st.stats.record_micro_start();
                     let _ = storage::save_user_stats(&st.stats);
+                }
+
+                // Maksimer/vis hovedvinduet automatisk når man tar pause så man enkelt kan ta RAM-dump eller skrive impulser
+                if cur == FlowState::Break {
+                    drop(st);
+                    self.set_mini_hud_mode(false);
+                    self.window.set_visible(true);
+                    self.window.present();
+                    self.ram_now_entry.grab_focus();
+                    return;
                 }
             }
 
@@ -1644,27 +1693,22 @@ impl TetherUi {
                 st.last_stats_check = now;
             }
 
-            // Auto-minimize check when editor is focused
+            // Auto-minimize check when editor is focused (separat per oppdaget editor)
             if !st.is_mini_hud && self.window.is_visible() && st.suppress_pos_ticks == 0 {
-                let editor_focused = crate::editor::is_editor_focused();
-                if editor_focused {
-                    match st.settings.editor_minimize_action {
-                        Some(storage::EditorMinimizeAction::Tray) => {
+                if let Some(focused_editor) = crate::editor::get_focused_editor() {
+                    let action = st.settings.get_minimize_action_for_editor(focused_editor);
+                    match action {
+                        storage::EditorMinimizeAction::Tray => {
                             drop(st);
                             self.window.set_visible(false);
                             return;
                         }
-                        Some(storage::EditorMinimizeAction::MiniHud) => {
+                        storage::EditorMinimizeAction::MiniHud => {
                             drop(st);
                             self.set_mini_hud_mode(true);
                             return;
                         }
-                        Some(storage::EditorMinimizeAction::KeepOpen) => {}
-                        None => {
-                            drop(st);
-                            self.prompt_editor_minimize();
-                            return;
-                        }
+                        storage::EditorMinimizeAction::KeepOpen => {}
                     }
                 }
             }
@@ -1732,17 +1776,33 @@ impl TetherUi {
             FlowState::Focus => {
                 let earned = st.flow.calculate_break_time();
                 let earned_str = crate::flowmodoro::format_time(earned);
+                let sub = if st.flow.banked_break_secs > 0 {
+                    let banked_str = crate::flowmodoro::format_time(st.flow.banked_break_secs);
+                    match lang {
+                        Language::Norwegian => format!("Opptjent pause hittil: {} (inkl. {} spart fra forrige pause) ({}:{} forhold)", earned_str, banked_str, st.flow.focus_ratio, st.flow.break_ratio),
+                        _ => format!("Earned break so far: {} (incl. {} saved from last break) ({}:{} ratio)", earned_str, banked_str, st.flow.focus_ratio, st.flow.break_ratio),
+                    }
+                } else {
+                    Strings::sub_focus(lang, &earned_str, st.flow.focus_ratio, st.flow.break_ratio)
+                };
                 (
                     Strings::tag_focus(lang),
                     "badge-focus",
-                    Strings::sub_focus(lang, &earned_str, st.flow.focus_ratio, st.flow.break_ratio),
+                    sub,
                 )
             }
-            FlowState::Break => (
-                Strings::tag_break(lang),
-                "badge-break",
-                Strings::sub_break(lang).to_string(),
-            ),
+            FlowState::Break => {
+                let rem_str = crate::flowmodoro::format_time(st.flow.remaining_break_secs);
+                let sub = match lang {
+                    Language::Norwegian => format!("Pause pågår: {} gjenstår. Klikk 'Avslutt pause' for å fortsette fokusøkt og spare resten!", rem_str),
+                    _ => format!("Break in progress: {} left. Click 'End break' to resume focus and save the rest!", rem_str),
+                };
+                (
+                    Strings::tag_break(lang),
+                    "badge-break",
+                    sub,
+                )
+            }
             FlowState::Idle => (
                 Strings::tag_ready(lang),
                 "badge-idle",
@@ -1780,7 +1840,8 @@ impl TetherUi {
                 self.main_action_btn.set_label(Strings::btn_start_focus(lang));
                 self.main_action_btn.set_css_classes(&["pill", "suggested-action"]);
                 self.micro_btn.set_visible(true);
-                self.reset_btn.set_visible(false);
+                let has_residual = st.flow.elapsed_focus_secs > 0 || st.flow.banked_break_secs > 0;
+                self.reset_btn.set_visible(has_residual);
             }
             FlowState::MicroStart => {
                 self.main_action_btn.set_label(match lang {
@@ -1939,16 +2000,25 @@ impl TetherUi {
     pub fn toggle_flow(&self) {
         let mut st = self.state.borrow_mut();
         st.flow.toggle();
+        if st.flow.state == FlowState::Break {
+            drop(st);
+            self.set_mini_hud_mode(false);
+            self.window.set_visible(true);
+            self.window.present();
+            self.ram_now_entry.grab_focus();
+        }
     }
 
     pub fn start_micro(&self) {
         let mut st = self.state.borrow_mut();
         st.flow.start_micro_start();
+        st.last_recorded_focus_mins = 0;
     }
 
     pub fn reset_flow(&self) {
         let mut st = self.state.borrow_mut();
         st.flow.reset();
+        st.last_recorded_focus_mins = 0;
     }
 
     pub fn toggle_audio(&self) {
