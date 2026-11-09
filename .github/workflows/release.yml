@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            output_file: tether-windows-x86_64.zip
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            output_file: Tether-macos.dmg
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            output_file: tether-linux-x86_64.tar.gz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev
+
+      - name: Build release binary
+        run: cargo build --release
+
+      # Windows: package .exe into .zip
+      - name: Package Windows
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          cp target/release/tether-desktop.exe tether.exe
+          7z a tether-windows-x86_64.zip tether.exe
+
+      # macOS: create .app bundle and .dmg image
+      - name: Package macOS DMG
+        if: matrix.os == 'macos-latest'
+        run: |
+          mkdir -p "Tether.app/Contents/MacOS"
+          mkdir -p "Tether.app/Contents/Resources"
+          cp target/release/tether-desktop "Tether.app/Contents/MacOS/tether"
+          chmod +x "Tether.app/Contents/MacOS/tether"
+          cat << 'EOF' > Tether.app/Contents/Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>tether</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.phrozenn.tether</string>
+              <key>CFBundleName</key>
+              <string>Tether</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.15</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          hdiutil create -volname "Tether" -srcfolder "Tether.app" -ov -format UDZO Tether-macos.dmg
+
+      # Linux: package binary into .tar.gz
+      - name: Package Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cp target/release/tether-desktop tether
+          tar -czvf tether-linux-x86_64.tar.gz tether
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output_file }}
+          path: ${{ matrix.output_file }}
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ matrix.output_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
