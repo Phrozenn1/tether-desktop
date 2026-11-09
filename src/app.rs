@@ -2,8 +2,11 @@ use std::time::Instant;
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Stroke, Vec2};
 
 use crate::flowmodoro::{FlowState, Flowmodoro};
+use crate::i18n::Strings;
 use crate::impulse::ImpulseState;
 use crate::ramdump::RamDumpState;
+use crate::storage::{self, Language, SideQuestFormat, TetherSettings};
+use crate::theme::{ThemeColors, ThemePreset};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 enum ActiveTab {
@@ -11,50 +14,55 @@ enum ActiveTab {
     RamDump,
     Impulses,
     YakShaving,
+    Settings,
 }
 
 pub struct TetherApp {
     flow: Flowmodoro,
     ramdump: RamDumpState,
     impulse: ImpulseState,
+    settings: TetherSettings,
+    theme_preset: ThemePreset,
+    theme: ThemeColors,
     active_tab: ActiveTab,
     always_on_top: bool,
     is_mini_hud: bool,
     last_update: Instant,
-    yak_jabs: Vec<&'static str>,
+    last_theme_check: Instant,
     current_yak_idx: usize,
+    save_feedback: Option<String>,
 }
 
 impl Default for TetherApp {
     fn default() -> Self {
+        let settings = storage::load_settings();
+        let theme_preset = ThemePreset::Auto;
+        let theme = ThemeColors::from_preset(theme_preset);
+        let mut flow = Flowmodoro::new();
+        flow.focus_ratio = settings.ratio_focus;
+        flow.break_ratio = settings.ratio_break;
+
         Self {
-            flow: Flowmodoro::new(),
+            flow,
             ramdump: RamDumpState::new(),
             impulse: ImpulseState::new(),
+            settings,
+            theme_preset,
+            theme,
             active_tab: ActiveTab::Flowmodoro,
             always_on_top: true,
             is_mini_hud: true,
             last_update: Instant::now(),
+            last_theme_check: Instant::now(),
             current_yak_idx: 0,
-            yak_jabs: vec![
-                "Å tweake verktøyene dine teller dessverre ikke som pensumlesing.",
-                "Jada, koden kjører sikkert mye raskere bare du bytter fargetema én gang til.",
-                "Gratulerer! Du har nå brukt 40 minutter på å automatisere en 3-sekunders oppgave.",
-                "Den jaken du barberer nå har vært naken i over en halvtime.",
-                "Du skulle fikse én feilmelding. Hvorfor refaktorerer du hele prosjektet nå?",
-                "Du er fire lag dypere inn i et kaninhull enn da du startet. Pust og gå tilbake til kjerneoppgaven.",
-                "Dette er ikke produktivitet. Dette er prokrastinering i smoking.",
-                "Hjernen din: 'Dette er superviktig og haster!' Realiteten: 'Du vasker tastaturet med q-tips'.",
-                "Nei, du trenger ikke skrive ditt eget rammeverk før du løser denne oppgaven.",
-                "Arkitekturen er fin nok nå. Skriv den faktiske koden.",
-            ],
+            save_feedback: None,
         }
     }
 }
 
 impl TetherApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Last JetBrains Mono hvis tilgjengelig på systemet
+        // Last JetBrains Mono hvis tilgjengelig
         let mut fonts = egui::FontDefinitions::default();
         let font_candidates = [
             "/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf",
@@ -78,40 +86,44 @@ impl TetherApp {
         }
         cc.egui_ctx.set_fonts(fonts);
 
-        // Ethereal Theme Palette
-        let bg_base = Color32::from_rgb(6, 11, 30);
-        let panel_bg = Color32::from_rgb(10, 16, 40);
-        let card_bg = Color32::from_rgb(16, 24, 56);
-        let border_subtle = Color32::from_rgba_premultiplied(109, 125, 182, 60);
-        let accent = Color32::from_rgb(125, 130, 217);
-        let text_primary = Color32::from_rgb(255, 235, 220);
+        let app = Self::default();
+        app.apply_visuals(&cc.egui_ctx);
+        app
+    }
 
+    fn apply_visuals(&self, ctx: &egui::Context) {
         let mut visuals = egui::Visuals::dark();
-        visuals.window_fill = bg_base;
-        visuals.panel_fill = panel_bg;
-        visuals.faint_bg_color = card_bg;
-        visuals.extreme_bg_color = Color32::from_rgb(4, 7, 20);
-        visuals.window_stroke = Stroke::new(1.0_f32, border_subtle);
+        visuals.window_fill = self.theme.bg_base;
+        visuals.panel_fill = self.theme.bg_panel;
+        visuals.faint_bg_color = self.theme.bg_card;
+        visuals.extreme_bg_color = Color32::from_rgb(
+            self.theme.bg_base.r().saturating_sub(4),
+            self.theme.bg_base.g().saturating_sub(4),
+            self.theme.bg_base.b().saturating_sub(10),
+        );
+        visuals.window_stroke = Stroke::new(1.0_f32, self.theme.border_subtle);
 
         visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
         visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
         visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
         visuals.widgets.active.rounding = egui::Rounding::same(8.0);
 
-        visuals.widgets.inactive.bg_fill = Color32::from_rgb(19, 26, 58);
-        visuals.widgets.hovered.bg_fill = Color32::from_rgb(37, 46, 86);
-        visuals.widgets.active.bg_fill = accent;
+        visuals.widgets.inactive.bg_fill = self.theme.bg_card;
+        visuals.widgets.hovered.bg_fill = Color32::from_rgb(
+            self.theme.bg_card.r().saturating_add(15),
+            self.theme.bg_card.g().saturating_add(15),
+            self.theme.bg_card.b().saturating_add(25),
+        );
+        visuals.widgets.active.bg_fill = self.theme.accent;
 
-        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(175, 185, 215));
-        visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, text_primary);
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, self.theme.text_muted);
+        visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, self.theme.text_primary);
         visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
 
-        visuals.selection.bg_fill = Color32::from_rgb(37, 46, 86);
-        visuals.selection.stroke = Stroke::new(1.0_f32, accent);
+        visuals.selection.bg_fill = self.theme.bg_card;
+        visuals.selection.stroke = Stroke::new(1.0_f32, self.theme.accent);
 
-        cc.egui_ctx.set_visuals(visuals);
-
-        Self::default()
+        ctx.set_visuals(visuals);
     }
 
     fn toggle_hud_mode(&mut self, ctx: &egui::Context) {
@@ -124,6 +136,20 @@ impl TetherApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(460.0, 580.0)));
             #[cfg(target_os = "linux")]
             hyprland_expand();
+        }
+    }
+
+    fn check_os_theme(&mut self, ctx: &egui::Context) {
+        if self.theme_preset == ThemePreset::Auto {
+            let now = Instant::now();
+            if now.duration_since(self.last_theme_check) >= std::time::Duration::from_secs(3) {
+                self.last_theme_check = now;
+                let new_theme = ThemeColors::from_preset(ThemePreset::Auto);
+                if new_theme.accent != self.theme.accent || new_theme.bg_base != self.theme.bg_base {
+                    self.theme = new_theme;
+                    self.apply_visuals(ctx);
+                }
+            }
         }
     }
 }
@@ -211,11 +237,12 @@ impl eframe::App for TetherApp {
         self.last_update = now;
 
         self.flow.tick(dt);
+        self.check_os_theme(ctx);
 
-        // Alltid oppdater med jevne mellomrom så vi fanger opp synkronisering fra Neovim
+        // Synkronisering og repainting
         ctx.request_repaint_after(std::time::Duration::from_millis(300));
 
-        // Global tastatursnarvei (Mellomrom = Toggle Flowmodoro)
+        // Tastatursnarvei (Mellomrom = Toggle Flowmodoro)
         if ctx.input(|i| i.key_pressed(egui::Key::Space)) && !ctx.wants_keyboard_input() {
             self.flow.toggle();
         }
@@ -225,7 +252,7 @@ impl eframe::App for TetherApp {
             self.toggle_hud_mode(ctx);
         }
 
-        // Mini-HUD modus (kompakt flytende pill i hjørnet)
+        // Mini-HUD modus
         if self.is_mini_hud {
             self.render_mini_hud_window(ctx);
             return;
@@ -238,30 +265,31 @@ impl eframe::App for TetherApp {
 
 impl TetherApp {
     fn render_mini_hud_window(&mut self, ctx: &egui::Context) {
+        let lang = self.settings.language;
         let (border_color, dot_color, aura_color, text_color, badge_bg, tag) = match self.flow.state {
             FlowState::Focus => (
-                Color32::from_rgb(120, 225, 155),
-                Color32::from_rgb(120, 225, 155),
-                Color32::from_rgba_premultiplied(120, 225, 155, 60),
+                self.theme.focus_green,
+                self.theme.focus_green,
+                Color32::from_rgba_premultiplied(self.theme.focus_green.r(), self.theme.focus_green.g(), self.theme.focus_green.b(), 60),
                 Color32::from_rgb(230, 255, 240),
                 Color32::from_rgba_premultiplied(20, 60, 40, 200),
-                "FOKUS",
+                Strings::tag_focus(lang),
             ),
             FlowState::Break => (
-                Color32::from_rgb(237, 91, 90),
-                Color32::from_rgb(237, 91, 90),
-                Color32::from_rgba_premultiplied(237, 91, 90, 60),
+                self.theme.break_red,
+                self.theme.break_red,
+                Color32::from_rgba_premultiplied(self.theme.break_red.r(), self.theme.break_red.g(), self.theme.break_red.b(), 60),
                 Color32::from_rgb(255, 230, 230),
                 Color32::from_rgba_premultiplied(70, 25, 30, 200),
-                "PAUSE",
+                Strings::tag_break(lang),
             ),
             FlowState::Idle => (
-                Color32::from_rgba_premultiplied(109, 125, 182, 90),
-                Color32::from_rgb(109, 125, 182),
-                Color32::from_rgba_premultiplied(109, 125, 182, 40),
-                Color32::from_rgb(190, 195, 220),
+                self.theme.border_subtle,
+                self.theme.idle_color,
+                Color32::from_rgba_premultiplied(self.theme.idle_color.r(), self.theme.idle_color.g(), self.theme.idle_color.b(), 40),
+                self.theme.text_muted,
                 Color32::from_rgba_premultiplied(25, 32, 60, 200),
-                "KLAR",
+                Strings::tag_ready(lang),
             ),
         };
 
@@ -269,7 +297,7 @@ impl TetherApp {
 
         let panel = egui::CentralPanel::default().frame(
             egui::Frame::none()
-                .fill(Color32::from_rgba_premultiplied(8, 12, 28, 235))
+                .fill(Color32::from_rgba_premultiplied(self.theme.bg_base.r(), self.theme.bg_base.g(), self.theme.bg_base.b(), 235))
                 .stroke(Stroke::new(stroke_width, border_color))
                 .rounding(23.0)
                 .inner_margin(egui::Margin {
@@ -313,7 +341,7 @@ impl TetherApp {
                 )
                 .frame(false);
 
-                let time_resp = ui.add(time_btn).on_hover_text("Klikk for å veksle fokus/pause (Mellomrom)");
+                let time_resp = ui.add(time_btn).on_hover_text(Strings::time_toggle_tooltip(lang));
                 if time_resp.clicked() {
                     self.flow.toggle();
                 }
@@ -334,13 +362,13 @@ impl TetherApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Ekspander til fullt dashboard
                     let expand_btn = egui::Button::new(
-                        RichText::new("⛶").size(15.0).color(Color32::from_rgb(200, 210, 240)),
+                        RichText::new("⛶").size(15.0).color(self.theme.text_primary),
                     )
                     .min_size(Vec2::new(26.0, 26.0))
                     .rounding(6.0)
-                    .fill(Color32::from_rgba_premultiplied(37, 46, 86, 150));
+                    .fill(self.theme.bg_card);
 
-                    if ui.add(expand_btn).on_hover_text("Åpne/lukk fullt dashboard (Dobbeltklikk virker også)").clicked() {
+                    if ui.add(expand_btn).on_hover_text(Strings::expand_tooltip(lang)).clicked() {
                         self.toggle_hud_mode(ctx);
                     }
 
@@ -355,7 +383,7 @@ impl TetherApp {
                     )
                     .min_size(Vec2::new(24.0, 24.0))
                     .frame(false);
-                    if ui.add(act_btn).on_hover_text("Skift modus").clicked() {
+                    if ui.add(act_btn).on_hover_text(Strings::time_toggle_tooltip(lang)).clicked() {
                         self.flow.toggle();
                     }
                 });
@@ -369,26 +397,25 @@ impl TetherApp {
                     Pos2::new(rect.min.x + 20.0, rect.max.y - 1.5),
                     Pos2::new(rect.min.x + 20.0 + bar_width, rect.max.y),
                 );
-                ui.painter().rect_filled(bar_rect, 1.0, border_color);
+                ui.painter().rect_filled(bar_rect, 1.0_f32, border_color);
             }
         });
 
-        // Dobbeltklikk hvor som helst på pillen ekspanderer også
         if res.response.double_clicked() {
             self.toggle_hud_mode(ctx);
         }
 
         res.response.context_menu(|ui| {
-            if ui.button("⛶ Åpne fullt panel").clicked() {
+            if ui.button(Strings::context_menu_open(lang)).clicked() {
                 self.toggle_hud_mode(ctx);
                 ui.close_menu();
             }
-            if ui.button("⏹ Nullstill økt").clicked() {
+            if ui.button(Strings::context_menu_reset(lang)).clicked() {
                 self.flow.reset();
                 ui.close_menu();
             }
             ui.separator();
-            if ui.button("✕ Avslutt Tether").clicked() {
+            if ui.button(Strings::context_menu_quit(lang)).clicked() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 ui.close_menu();
             }
@@ -396,24 +423,25 @@ impl TetherApp {
     }
 
     fn render_full_dashboard(&mut self, ctx: &egui::Context) {
+        let lang = self.settings.language;
         let (border_color, status_text) = match self.flow.state {
-            FlowState::Focus => (Color32::from_rgb(120, 225, 155), "FOKUS"),
-            FlowState::Break => (Color32::from_rgb(237, 91, 90), "PAUSE"),
-            FlowState::Idle => (Color32::from_rgb(125, 130, 217), "KLAR"),
+            FlowState::Focus => (self.theme.focus_green, Strings::tag_focus(lang)),
+            FlowState::Break => (self.theme.break_red, Strings::tag_break(lang)),
+            FlowState::Idle => (self.theme.idle_color, Strings::tag_ready(lang)),
         };
 
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
-                    .fill(Color32::from_rgb(6, 11, 30))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(109, 125, 182, 80)))
+                    .fill(self.theme.bg_base)
+                    .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
                     .rounding(16.0),
             )
             .show(ctx, |ui| {
                 // Header
                 egui::Frame::none()
-                    .fill(Color32::from_rgb(10, 16, 40))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(109, 125, 182, 50)))
+                    .fill(self.theme.bg_panel)
+                    .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
                     .rounding(egui::Rounding { nw: 16.0, ne: 16.0, sw: 0.0, se: 0.0 })
                     .inner_margin(egui::Margin::symmetric(14.0, 10.0))
                     .show(ui, |ui| {
@@ -421,7 +449,7 @@ impl TetherApp {
                             let header_title = ui.heading(
                                 RichText::new("⚓ TETHER")
                                     .strong()
-                                    .color(Color32::from_rgb(255, 235, 220)),
+                                    .color(self.theme.text_primary),
                             );
                             if header_title.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -432,7 +460,7 @@ impl TetherApp {
 
                             // Status chip
                             egui::Frame::none()
-                                .fill(Color32::from_rgba_premultiplied(37, 46, 86, 180))
+                                .fill(self.theme.bg_card)
                                 .stroke(Stroke::new(1.0_f32, border_color))
                                 .rounding(4.0)
                                 .inner_margin(egui::Margin::symmetric(6.0, 2.0))
@@ -440,11 +468,16 @@ impl TetherApp {
                                     ui.label(RichText::new(status_text).size(10.0).strong().color(border_color));
                                 });
 
+                            // Neovim quick status
+                            if storage::is_neovim_running() {
+                                ui.label(RichText::new("🟢 NVIM").size(10.0).strong().color(self.theme.focus_green));
+                            }
+
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 // Lukk
                                 if ui
-                                    .button(RichText::new("✕").size(14.0).color(Color32::from_rgb(180, 190, 220)))
-                                    .on_hover_text("Lukk programmet")
+                                    .button(RichText::new("✕").size(14.0).color(self.theme.text_muted))
+                                    .on_hover_text(Strings::context_menu_quit(lang))
                                     .clicked()
                                 {
                                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -452,17 +485,17 @@ impl TetherApp {
 
                                 // Krymp til Mini-HUD
                                 let mini_btn = egui::Button::new(
-                                    RichText::new("🗕 Mini-HUD")
+                                    RichText::new(Strings::mini_hud_btn(lang))
                                         .size(11.5)
                                         .strong()
-                                        .color(Color32::from_rgb(125, 130, 217)),
+                                        .color(self.theme.accent),
                                 );
                                 if ui.add(mini_btn).on_hover_text("Minimer til flytende hjørne-HUD (Esc)").clicked() {
                                     self.toggle_hud_mode(ctx);
                                 }
 
                                 // Fest øverst
-                                if ui.checkbox(&mut self.always_on_top, "📌 Alltid øverst").changed() {
+                                if ui.checkbox(&mut self.always_on_top, Strings::always_on_top(lang)).changed() {
                                     let level = if self.always_on_top {
                                         egui::WindowLevel::AlwaysOnTop
                                     } else {
@@ -475,12 +508,13 @@ impl TetherApp {
 
                         ui.add_space(8.0);
 
-                        // Segmentert fane-velger (Pill Tabs)
+                        // 5 Segmenterte Fane-velgere
                         ui.horizontal(|ui| {
-                            self.render_tab_pill(ui, ActiveTab::Flowmodoro, "⏱ Flowmodoro");
-                            self.render_tab_pill(ui, ActiveTab::RamDump, "🧠 RAM-Dump");
-                            self.render_tab_pill(ui, ActiveTab::Impulses, "💡 Side-Quests");
-                            self.render_tab_pill(ui, ActiveTab::YakShaving, "🪒 Yak-Alarm");
+                            self.render_tab_pill(ui, ActiveTab::Flowmodoro, Strings::tab_flowmodoro(lang));
+                            self.render_tab_pill(ui, ActiveTab::RamDump, Strings::tab_ramdump(lang));
+                            self.render_tab_pill(ui, ActiveTab::Impulses, Strings::tab_sidequests(lang));
+                            self.render_tab_pill(ui, ActiveTab::YakShaving, Strings::tab_yak(lang));
+                            self.render_tab_pill(ui, ActiveTab::Settings, Strings::tab_settings(lang));
                         });
                     });
 
@@ -491,6 +525,7 @@ impl TetherApp {
                     ActiveTab::RamDump => self.render_ramdump(ui),
                     ActiveTab::Impulses => self.render_impulses(ui),
                     ActiveTab::YakShaving => self.render_yak_shaving(ui),
+                    ActiveTab::Settings => self.render_settings(ui, ctx),
                 }
             });
     }
@@ -499,23 +534,23 @@ impl TetherApp {
         let is_selected = self.active_tab == tab;
         let (bg, text_color, stroke) = if is_selected {
             (
-                Color32::from_rgb(37, 46, 86),
-                Color32::from_rgb(255, 235, 220),
-                Stroke::new(1.0_f32, Color32::from_rgb(125, 130, 217)),
+                self.theme.bg_card,
+                self.theme.text_primary,
+                Stroke::new(1.0_f32, self.theme.accent),
             )
         } else {
             (
-                Color32::from_rgba_premultiplied(16, 24, 56, 120),
-                Color32::from_rgb(150, 160, 190),
+                Color32::from_rgba_premultiplied(self.theme.bg_card.r(), self.theme.bg_card.g(), self.theme.bg_card.b(), 100),
+                self.theme.text_muted,
                 Stroke::NONE,
             )
         };
 
-        let btn = egui::Button::new(RichText::new(label).size(12.0).strong().color(text_color))
+        let btn = egui::Button::new(RichText::new(label).size(11.5).strong().color(text_color))
             .fill(bg)
             .stroke(stroke)
             .rounding(6.0)
-            .min_size(Vec2::new(95.0, 26.0));
+            .min_size(Vec2::new(76.0, 26.0));
 
         if ui.add(btn).clicked() {
             self.active_tab = tab;
@@ -523,10 +558,11 @@ impl TetherApp {
     }
 
     fn render_flowmodoro(&mut self, ui: &mut egui::Ui) {
+        let lang = self.settings.language;
         let (status_text, border_color, text_color) = match self.flow.state {
-            FlowState::Focus => ("FOKUSØKT (FLYTSONE)", Color32::from_rgb(120, 225, 155), Color32::from_rgb(120, 225, 155)),
-            FlowState::Break => ("PAUSE (HVILE)", Color32::from_rgb(237, 91, 90), Color32::from_rgb(237, 91, 90)),
-            FlowState::Idle => ("KLAR TIL NY ØKT", Color32::from_rgb(125, 130, 217), Color32::from_rgb(180, 190, 220)),
+            FlowState::Focus => (Strings::focus_title(lang), self.theme.focus_green, self.theme.focus_green),
+            FlowState::Break => (Strings::break_title(lang), self.theme.break_red, self.theme.break_red),
+            FlowState::Idle => (Strings::ready_title(lang), self.theme.idle_color, self.theme.text_muted),
         };
 
         ui.vertical_centered(|ui| {
@@ -534,7 +570,7 @@ impl TetherApp {
 
             // Hovedkort med klokke og status
             egui::Frame::none()
-                .fill(Color32::from_rgb(12, 18, 46))
+                .fill(self.theme.bg_panel)
                 .stroke(Stroke::new(1.5_f32, border_color))
                 .rounding(16.0)
                 .inner_margin(egui::Margin::symmetric(24.0, 18.0))
@@ -553,12 +589,13 @@ impl TetherApp {
                     let sub_info = match self.flow.state {
                         FlowState::Focus => {
                             let earned = self.flow.calculate_break_time();
-                            format!("Opptjent pause hittil: {} (45:15 forhold)", crate::flowmodoro::format_time(earned))
+                            let earned_str = crate::flowmodoro::format_time(earned);
+                            Strings::sub_focus(lang, &earned_str, self.flow.focus_ratio, self.flow.break_ratio)
                         }
-                        FlowState::Break => "Husk å ta en 60s RAM-dump og strekke beina!".to_string(),
-                        FlowState::Idle => "Jobb så lenge du har flyt. Pausen beregnes automatisk.".to_string(),
+                        FlowState::Break => Strings::sub_break(lang).to_string(),
+                        FlowState::Idle => Strings::sub_idle(lang).to_string(),
                     };
-                    ui.label(RichText::new(sub_info).size(11.5).color(Color32::from_rgb(160, 170, 200)));
+                    ui.label(RichText::new(sub_info).size(11.5).color(self.theme.text_muted));
                 });
 
             ui.add_space(18.0);
@@ -568,9 +605,9 @@ impl TetherApp {
                 ui.add_space(ui.available_width() / 4.5);
 
                 let (btn_text, btn_fill, btn_fg) = match self.flow.state {
-                    FlowState::Idle => ("▶ Start Flytsone", Color32::from_rgb(35, 90, 55), Color32::from_rgb(230, 255, 240)),
-                    FlowState::Focus => ("☕ Ta Pause", Color32::from_rgb(110, 35, 40), Color32::from_rgb(255, 230, 230)),
-                    FlowState::Break => ("⏹ Avslutt Pause", Color32::from_rgb(37, 46, 86), Color32::from_rgb(255, 235, 220)),
+                    FlowState::Idle => (Strings::btn_start_focus(lang), Color32::from_rgb(35, 90, 55), Color32::from_rgb(230, 255, 240)),
+                    FlowState::Focus => (Strings::btn_take_break(lang), Color32::from_rgb(110, 35, 40), Color32::from_rgb(255, 230, 230)),
+                    FlowState::Break => (Strings::btn_end_break(lang), self.theme.bg_card, self.theme.text_primary),
                 };
 
                 let main_btn = egui::Button::new(RichText::new(btn_text).size(15.0).strong().color(btn_fg))
@@ -583,8 +620,8 @@ impl TetherApp {
                 }
 
                 if self.flow.is_active() {
-                    let reset_btn = egui::Button::new(RichText::new("↺ Nullstill").size(13.0).color(Color32::from_rgb(180, 190, 210)))
-                        .fill(Color32::from_rgb(25, 32, 60))
+                    let reset_btn = egui::Button::new(RichText::new(Strings::btn_reset(lang)).size(13.0).color(self.theme.text_muted))
+                        .fill(self.theme.bg_panel)
                         .rounding(10.0)
                         .min_size(Vec2::new(90.0, 42.0));
                     if ui.add(reset_btn).clicked() {
@@ -595,69 +632,76 @@ impl TetherApp {
 
             ui.add_space(14.0);
             ui.label(
-                RichText::new("Snarvei: Trykk Mellomrom når som helst for å veksle.")
+                RichText::new(Strings::shortcut_hint(lang))
                     .size(11.0)
-                    .color(Color32::from_rgb(120, 130, 160)),
+                    .color(self.theme.text_muted),
             );
 
             ui.add_space(18.0);
 
             // Forholdstall og dagens statistikk
             egui::Frame::none()
-                .fill(Color32::from_rgb(12, 18, 46))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(109, 125, 182, 50)))
+                .fill(self.theme.bg_panel)
+                .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
                 .rounding(12.0)
                 .inner_margin(14.0)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Forholdstall:").size(12.0).strong());
-                        ui.add(egui::DragValue::new(&mut self.flow.focus_ratio).range(1..=120).suffix("m fokus"));
+                        ui.label(RichText::new(Strings::ratio_title(lang)).size(12.0).strong());
+                        if ui.add(egui::DragValue::new(&mut self.flow.focus_ratio).range(1..=120).suffix("m")).changed() {
+                            self.settings.ratio_focus = self.flow.focus_ratio;
+                            let _ = storage::save_settings(&self.settings);
+                        }
                         ui.label(":");
-                        ui.add(egui::DragValue::new(&mut self.flow.break_ratio).range(1..=60).suffix("m pause"));
+                        if ui.add(egui::DragValue::new(&mut self.flow.break_ratio).range(1..=60).suffix("m")).changed() {
+                            self.settings.ratio_break = self.flow.break_ratio;
+                            let _ = storage::save_settings(&self.settings);
+                        }
                     });
 
                     ui.add_space(6.0);
                     let total_mins = self.flow.total_focus_secs / 60;
                     ui.label(
-                        RichText::new(format!("Total fokus i dag: {} minutter", total_mins))
+                        RichText::new(Strings::stats_focus_today(lang, total_mins))
                             .size(11.5)
-                            .color(Color32::from_rgb(120, 225, 155)),
+                            .color(self.theme.focus_green),
                     );
                 });
         });
     }
 
     fn render_ramdump(&mut self, ui: &mut egui::Ui) {
-        ui.heading(RichText::new("🧠 60-sekunders RAM-Dump").color(Color32::from_rgb(255, 235, 220)));
+        let lang = self.settings.language;
+        ui.heading(RichText::new(Strings::ramdump_heading(lang)).color(self.theme.text_primary));
         ui.label(
-            RichText::new("Frys tilstanden i arbeidsminnet før du forlater pulten, så slipper du oppstartsparalyse etterpå.")
+            RichText::new(Strings::ramdump_subtitle(lang))
                 .size(11.5)
-                .color(Color32::from_rgb(160, 170, 200)),
+                .color(self.theme.text_muted),
         );
         ui.add_space(12.0);
 
         egui::Frame::none()
-            .fill(Color32::from_rgb(12, 18, 46))
-            .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(109, 125, 182, 50)))
+            .fill(self.theme.bg_panel)
+            .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
             .rounding(12.0)
             .inner_margin(14.0)
             .show(ui, |ui| {
-                ui.label(RichText::new("[NÅ] Hva holder du på med akkurat nå?").size(12.0).strong().color(Color32::from_rgb(125, 130, 217)));
-                ui.add_sized([ui.available_width(), 26.0], egui::TextEdit::singleline(&mut self.ramdump.now).hint_text("f.eks. Skriver ferdig sql-migrering"));
+                ui.label(RichText::new(Strings::field_now(lang)).size(12.0).strong().color(self.theme.accent));
+                ui.add_sized([ui.available_width(), 26.0], egui::TextEdit::singleline(&mut self.ramdump.now).hint_text(Strings::field_now_hint(lang)));
                 ui.add_space(8.0);
 
-                ui.label(RichText::new("[STATUS] Hva mangler / hvor stoppet det?").size(12.0).strong().color(Color32::from_rgb(125, 130, 217)));
-                ui.add_sized([ui.available_width(), 26.0], egui::TextEdit::singleline(&mut self.ramdump.status).hint_text("f.eks. Må legge til foreign key constraint"));
+                ui.label(RichText::new(Strings::field_status(lang)).size(12.0).strong().color(self.theme.accent));
+                ui.add_sized([ui.available_width(), 26.0], egui::TextEdit::singleline(&mut self.ramdump.status).hint_text(Strings::field_status_hint(lang)));
                 ui.add_space(8.0);
 
-                ui.label(RichText::new("[NESTE MEKANISKE STEG] Aller første tastetrykk ved retur:").size(12.0).strong().color(Color32::from_rgb(120, 225, 155)));
-                ui.add_sized([ui.available_width(), 26.0], egui::TextEdit::singleline(&mut self.ramdump.next_step).hint_text("f.eks. Kjør 'cargo test --lib'"));
+                ui.label(RichText::new(Strings::field_next(lang)).size(12.0).strong().color(self.theme.focus_green));
+                ui.add_sized([ui.available_width(), 26.0], egui::TextEdit::singleline(&mut self.ramdump.next_step).hint_text(Strings::field_next_hint(lang)));
                 ui.add_space(12.0);
 
                 let save_btn = egui::Button::new(
-                    RichText::new("💾 Forankre Tilstand").size(14.0).strong().color(Color32::from_rgb(255, 235, 220)),
+                    RichText::new(Strings::btn_save_ramdump(lang)).size(14.0).strong().color(self.theme.text_primary),
                 )
-                .fill(Color32::from_rgb(37, 46, 86))
+                .fill(self.theme.bg_card)
                 .rounding(8.0)
                 .min_size(Vec2::new(ui.available_width(), 36.0));
 
@@ -667,33 +711,34 @@ impl TetherApp {
 
                 if let Some(msg) = &self.ramdump.feedback_message {
                     ui.add_space(6.0);
-                    ui.label(RichText::new(msg).color(Color32::from_rgb(120, 225, 155)).size(12.0));
+                    ui.label(RichText::new(msg).color(self.theme.focus_green).size(12.0));
                 }
             });
 
         if let Some((time, now, status, next)) = &self.ramdump.last_dump {
             ui.add_space(14.0);
-            ui.label(RichText::new(format!("Forrige forankring (kl. {}):", time)).strong().size(12.0));
+            ui.label(RichText::new(Strings::last_dump_heading(lang, time)).strong().size(12.0));
 
             egui::Frame::none()
-                .fill(Color32::from_rgb(10, 15, 38))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(120, 225, 155, 60)))
+                .fill(self.theme.bg_panel)
+                .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(self.theme.focus_green.r(), self.theme.focus_green.g(), self.theme.focus_green.b(), 60)))
                 .rounding(10.0)
                 .inner_margin(12.0)
                 .show(ui, |ui| {
-                    ui.label(RichText::new(format!("• Nå: {}", now)).color(Color32::from_rgb(255, 240, 230)));
-                    ui.label(RichText::new(format!("• Status: {}", status)).color(Color32::from_rgb(180, 190, 215)));
-                    ui.label(RichText::new(format!("• Neste mekaniske steg: {}", next)).strong().color(Color32::from_rgb(120, 225, 155)));
+                    ui.label(RichText::new(Strings::bullet_now(lang, now)).color(self.theme.text_primary));
+                    ui.label(RichText::new(Strings::bullet_status(lang, status)).color(self.theme.text_muted));
+                    ui.label(RichText::new(Strings::bullet_next(lang, next)).strong().color(self.theme.focus_green));
                 });
         }
     }
 
     fn render_impulses(&mut self, ui: &mut egui::Ui) {
-        ui.heading(RichText::new("💡 Side-Quest & Impulsbuffer").color(Color32::from_rgb(255, 235, 220)));
+        let lang = self.settings.language;
+        ui.heading(RichText::new(Strings::sidequests_heading(lang)).color(self.theme.text_primary));
         ui.label(
-            RichText::new("Dukket det opp en tilfeldig tanke? Fang den her slik at du kan holde fokus på kjerneoppgaven.")
+            RichText::new(Strings::sidequests_subtitle(lang))
                 .size(11.5)
-                .color(Color32::from_rgb(160, 170, 200)),
+                .color(self.theme.text_muted),
         );
         ui.add_space(12.0);
 
@@ -702,46 +747,46 @@ impl TetherApp {
             let input = ui.add_sized(
                 [ui.available_width() - 85.0, 34.0],
                 egui::TextEdit::singleline(&mut self.impulse.input_text)
-                    .hint_text("Skriv strøtanke her (f.eks. 'Sjekk e-post om flybilletter')..."),
+                    .hint_text(Strings::sidequests_input_hint(lang)),
             );
 
             let submitted = input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            let add_btn = egui::Button::new(RichText::new("+ Fang").strong().color(Color32::from_rgb(255, 235, 220)))
-                .fill(Color32::from_rgb(37, 46, 86))
+            let add_btn = egui::Button::new(RichText::new(Strings::btn_capture(lang)).strong().color(self.theme.text_primary))
+                .fill(self.theme.bg_card)
                 .rounding(8.0)
                 .min_size(Vec2::new(80.0, 34.0));
             let clicked = ui.add(add_btn).clicked();
 
             if submitted || clicked {
-                let _ = self.impulse.capture();
+                let _ = self.impulse.capture_with_settings(&self.settings);
             }
         });
 
         if let Some(feedback) = &self.impulse.feedback {
             ui.add_space(6.0);
-            ui.label(RichText::new(feedback).color(Color32::from_rgb(120, 225, 155)).size(12.0));
+            ui.label(RichText::new(feedback).color(self.theme.focus_green).size(12.0));
         }
 
         ui.add_space(14.0);
-        ui.label(RichText::new("Fangede impulser (venter til etter økten):").strong().size(12.0));
+        ui.label(RichText::new(Strings::saved_impulses_heading(lang)).strong().size(12.0));
 
         let mut to_remove = None;
         egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
             if self.impulse.items.is_empty() {
                 ui.add_space(10.0);
-                ui.label(RichText::new("Ingen lagrede impulser enda. Hodet ditt er rent! 🧘").italics().color(Color32::from_rgb(120, 130, 160)));
+                ui.label(RichText::new(Strings::no_impulses(lang)).italics().color(self.theme.text_muted));
             } else {
                 for (idx, item) in self.impulse.items.iter().enumerate().rev() {
                     egui::Frame::none()
-                        .fill(Color32::from_rgb(12, 18, 46))
-                        .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(109, 125, 182, 40)))
+                        .fill(self.theme.bg_panel)
+                        .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
                         .rounding(8.0)
                         .inner_margin(egui::Margin::symmetric(10.0, 8.0))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(item).size(12.5).color(Color32::from_rgb(230, 235, 250)));
+                                ui.label(RichText::new(item).size(12.5).color(self.theme.text_primary));
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if ui.button(RichText::new("✓").size(12.0).color(Color32::from_rgb(120, 225, 155))).on_hover_text("Fjern / Fullført").clicked() {
+                                    if ui.button(RichText::new("✓").size(12.0).color(self.theme.focus_green)).on_hover_text("Fjern / Fullfør").clicked() {
                                         to_remove = Some(idx);
                                     }
                                 });
@@ -753,65 +798,259 @@ impl TetherApp {
         });
 
         if let Some(idx) = to_remove {
-            let _ = self.impulse.remove(idx);
+            let _ = self.impulse.remove_with_settings(&self.settings, idx);
         }
     }
 
     fn render_yak_shaving(&mut self, ui: &mut egui::Ui) {
-        ui.heading(RichText::new("🪒 Yak-Shaving & Kaninhull-sjekk").color(Color32::from_rgb(255, 235, 220)));
+        let lang = self.settings.language;
+        let jabs = Strings::yak_jabs(lang);
+        ui.heading(RichText::new(Strings::yak_heading(lang)).color(self.theme.text_primary));
         ui.label(
-            RichText::new("En sunn dose realitetssjekk når du merker at du gjør alt annet enn det du egentlig burde gjøre:")
+            RichText::new(Strings::yak_subtitle(lang))
                 .size(11.5)
-                .color(Color32::from_rgb(160, 170, 200)),
+                .color(self.theme.text_muted),
         );
         ui.add_space(14.0);
 
-        // Fremhevet sitat-kort
-        let current_jab = self.yak_jabs[self.current_yak_idx % self.yak_jabs.len()];
+        let current_jab = jabs[self.current_yak_idx % jabs.len()];
         egui::Frame::none()
-            .fill(Color32::from_rgb(14, 20, 52))
-            .stroke(Stroke::new(1.5_f32, Color32::from_rgb(237, 91, 90)))
+            .fill(self.theme.bg_panel)
+            .stroke(Stroke::new(1.5_f32, self.theme.break_red))
             .rounding(14.0)
             .inner_margin(18.0)
             .show(ui, |ui| {
-                ui.label(RichText::new("“").size(32.0).color(Color32::from_rgb(237, 91, 90)));
-                ui.label(RichText::new(current_jab).size(15.0).italics().strong().color(Color32::from_rgb(255, 240, 230)));
+                ui.label(RichText::new("“").size(32.0).color(self.theme.break_red));
+                ui.label(RichText::new(current_jab).size(15.0).italics().strong().color(self.theme.text_primary));
                 ui.add_space(10.0);
 
                 ui.horizontal(|ui| {
                     let next_btn = egui::Button::new(
-                        RichText::new("🎲 Nytt Stikk").size(12.0).strong().color(Color32::from_rgb(255, 235, 220)),
+                        RichText::new(Strings::btn_next_jab(lang)).size(12.0).strong().color(self.theme.text_primary),
                     )
-                    .fill(Color32::from_rgb(37, 46, 86))
+                    .fill(self.theme.bg_card)
                     .rounding(6.0);
 
                     if ui.add(next_btn).clicked() {
-                        self.current_yak_idx = (self.current_yak_idx + 1) % self.yak_jabs.len();
+                        self.current_yak_idx = (self.current_yak_idx + 1) % jabs.len();
                     }
 
-                    if ui.button(RichText::new("🚀 Tilbake til flyten!").size(12.0).strong().color(Color32::from_rgb(120, 225, 155))).clicked() {
+                    if ui.button(RichText::new(Strings::btn_back_to_flow(lang)).size(12.0).strong().color(self.theme.focus_green)).clicked() {
                         self.active_tab = ActiveTab::Flowmodoro;
                     }
                 });
             });
 
         ui.add_space(16.0);
-        ui.label(RichText::new("Flere påminnelser:").strong().size(12.0));
+        ui.label(RichText::new(Strings::more_reminders(lang)).strong().size(12.0));
 
         egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-            for (i, jab) in self.yak_jabs.iter().enumerate() {
+            for (i, jab) in jabs.iter().enumerate() {
                 egui::Frame::none()
-                    .fill(Color32::from_rgb(10, 15, 38))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(109, 125, 182, 30)))
+                    .fill(self.theme.bg_panel)
+                    .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
                     .rounding(6.0)
                     .inner_margin(egui::Margin::symmetric(10.0, 7.0))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(format!("{}.", i + 1)).color(Color32::from_rgb(237, 91, 90)).strong().size(11.5));
-                            ui.label(RichText::new(*jab).size(11.5).color(Color32::from_rgb(200, 210, 230)));
+                            ui.label(RichText::new(format!("{}.", i + 1)).color(self.theme.break_red).strong().size(11.5));
+                            ui.label(RichText::new(*jab).size(11.5).color(self.theme.text_muted));
                         });
                     });
                 ui.add_space(3.0);
+            }
+        });
+    }
+
+    fn render_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let lang = self.settings.language;
+        ui.heading(RichText::new(Strings::settings_heading(lang)).color(self.theme.text_primary));
+        ui.add_space(8.0);
+
+        egui::ScrollArea::vertical().max_height(460.0).show(ui, |ui| {
+            // Seksjon: Språk & Tema
+            egui::Frame::none()
+                .fill(self.theme.bg_panel)
+                .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
+                .rounding(10.0)
+                .inner_margin(12.0)
+                .show(ui, |ui| {
+                    ui.label(RichText::new(Strings::sec_general(lang)).strong().size(13.0).color(self.theme.accent));
+                    ui.add_space(6.0);
+
+                    // Språk
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(Strings::lbl_language(lang)).size(12.0));
+                        ui.radio_value(&mut self.settings.language, Language::English, "English");
+                        ui.radio_value(&mut self.settings.language, Language::Norwegian, "Norsk");
+                    });
+                    ui.add_space(8.0);
+
+                    // Tema-velger
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(Strings::lbl_theme(lang)).size(12.0));
+                        let current_preset = self.theme_preset;
+                        let mut selected = current_preset;
+
+                        egui::ComboBox::from_id_salt("theme_selector")
+                            .selected_text(match selected {
+                                ThemePreset::Auto => "Auto (Follow OS / Omarchy)",
+                                ThemePreset::Ethereal => "Ethereal",
+                                ThemePreset::CatppuccinMocha => "Catppuccin Mocha",
+                                ThemePreset::TokyoNight => "Tokyo Night",
+                                ThemePreset::Nord => "Nord",
+                                ThemePreset::GruvboxDark => "Gruvbox Dark",
+                                ThemePreset::Cyberpunk => "Cyberpunk Neon",
+                                ThemePreset::RosePine => "Rosé Pine",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut selected, ThemePreset::Auto, "Auto (Follow OS / Omarchy)");
+                                ui.selectable_value(&mut selected, ThemePreset::Ethereal, "Ethereal");
+                                ui.selectable_value(&mut selected, ThemePreset::CatppuccinMocha, "Catppuccin Mocha");
+                                ui.selectable_value(&mut selected, ThemePreset::TokyoNight, "Tokyo Night");
+                                ui.selectable_value(&mut selected, ThemePreset::Nord, "Nord");
+                                ui.selectable_value(&mut selected, ThemePreset::GruvboxDark, "Gruvbox Dark");
+                                ui.selectable_value(&mut selected, ThemePreset::Cyberpunk, "Cyberpunk Neon");
+                                ui.selectable_value(&mut selected, ThemePreset::RosePine, "Rosé Pine");
+                            });
+
+                        if selected != current_preset {
+                            self.theme_preset = selected;
+                            self.theme = ThemeColors::from_preset(selected);
+                            self.apply_visuals(ctx);
+                        }
+                    });
+                });
+
+            ui.add_space(10.0);
+
+            // Seksjon: Flowmodoro Forholdstall
+            egui::Frame::none()
+                .fill(self.theme.bg_panel)
+                .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
+                .rounding(10.0)
+                .inner_margin(12.0)
+                .show(ui, |ui| {
+                    ui.label(RichText::new(Strings::sec_flowmodoro(lang)).strong().size(13.0).color(self.theme.accent));
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(Strings::ratio_title(lang)).size(12.0));
+                        if ui.add(egui::DragValue::new(&mut self.settings.ratio_focus).range(1..=120).suffix("m")).changed() {
+                            self.flow.focus_ratio = self.settings.ratio_focus;
+                        }
+                        ui.label(":");
+                        if ui.add(egui::DragValue::new(&mut self.settings.ratio_break).range(1..=60).suffix("m")).changed() {
+                            self.flow.break_ratio = self.settings.ratio_break;
+                        }
+                    });
+                });
+
+            ui.add_space(10.0);
+
+            // Seksjon: Side-Quests lagring og format
+            egui::Frame::none()
+                .fill(self.theme.bg_panel)
+                .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
+                .rounding(10.0)
+                .inner_margin(12.0)
+                .show(ui, |ui| {
+                    ui.label(RichText::new(Strings::sec_sidequests(lang)).strong().size(13.0).color(self.theme.accent));
+                    ui.add_space(6.0);
+
+                    ui.label(RichText::new(Strings::lbl_filepath(lang)).size(12.0));
+                    ui.add_sized([ui.available_width(), 26.0], egui::TextEdit::singleline(&mut self.settings.side_quests_file));
+                    ui.add_space(6.0);
+
+                    // Hurtigknapper for sti
+                    ui.horizontal(|ui| {
+                        if ui.button("Standard").clicked() {
+                            self.settings.side_quests_file = storage::get_data_dir().join("impulses.md").to_string_lossy().to_string();
+                        }
+                        if ui.button("~/Notes/side-quests.md").clicked() {
+                            self.settings.side_quests_file = "~/Notes/side-quests.md".to_string();
+                        }
+                    });
+
+                    ui.add_space(8.0);
+                    ui.label(RichText::new(Strings::lbl_format(lang)).size(12.0));
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut self.settings.side_quests_format, SideQuestFormat::MarkdownCheckbox, "Markdown - [ ]");
+                        ui.radio_value(&mut self.settings.side_quests_format, SideQuestFormat::MarkdownBullet, "Markdown •");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut self.settings.side_quests_format, SideQuestFormat::TodoTxt, "Todo.txt");
+                        ui.radio_value(&mut self.settings.side_quests_format, SideQuestFormat::Json, "JSON");
+                    });
+                });
+
+            ui.add_space(10.0);
+
+            // Seksjon: Neovim-integrasjon
+            egui::Frame::none()
+                .fill(self.theme.bg_panel)
+                .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
+                .rounding(10.0)
+                .inner_margin(12.0)
+                .show(ui, |ui| {
+                    ui.label(RichText::new(Strings::sec_integration(lang)).strong().size(13.0).color(self.theme.accent));
+                    ui.add_space(6.0);
+
+                    ui.horizontal(|ui| {
+                        if storage::is_neovim_running() {
+                            ui.label(RichText::new(Strings::nvim_status_online(lang)).color(self.theme.focus_green).strong());
+                        } else {
+                            ui.label(RichText::new(Strings::nvim_status_offline(lang)).color(self.theme.text_muted));
+                        }
+
+                        if ui.button(RichText::new(Strings::btn_open_nvim(lang)).strong().color(self.theme.accent)).clicked() {
+                            storage::open_or_focus_neovim(&self.settings.terminal_command);
+                        }
+                    });
+
+                    ui.add_space(8.0);
+                    ui.label(RichText::new(Strings::lbl_terminal_cmd(lang)).size(12.0));
+                    ui.add_sized([ui.available_width(), 26.0], egui::TextEdit::singleline(&mut self.settings.terminal_command));
+
+                    ui.add_space(8.0);
+                    ui.checkbox(&mut self.settings.auto_launch_desktop, Strings::chk_auto_desktop(lang));
+                });
+
+            ui.add_space(10.0);
+
+            // Seksjon: Varsler
+            egui::Frame::none()
+                .fill(self.theme.bg_panel)
+                .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
+                .rounding(10.0)
+                .inner_margin(12.0)
+                .show(ui, |ui| {
+                    ui.label(RichText::new(Strings::sec_notifications(lang)).strong().size(13.0).color(self.theme.accent));
+                    ui.add_space(6.0);
+                    ui.checkbox(&mut self.settings.notifications_enabled, Strings::chk_notifications(lang));
+                    ui.checkbox(&mut self.settings.remind_ramdump, Strings::chk_remind_ramdump(lang));
+                });
+
+            ui.add_space(14.0);
+
+            // Lagre-knapp
+            let save_btn = egui::Button::new(
+                RichText::new(Strings::btn_save(lang)).size(14.0).strong().color(self.theme.text_primary),
+            )
+            .fill(self.theme.accent)
+            .rounding(8.0)
+            .min_size(Vec2::new(ui.available_width(), 38.0));
+
+            if ui.add(save_btn).clicked() {
+                self.flow.focus_ratio = self.settings.ratio_focus;
+                self.flow.break_ratio = self.settings.ratio_break;
+                self.impulse.reload(&self.settings);
+                let _ = storage::save_settings(&self.settings);
+                self.save_feedback = Some(Strings::save_success(lang).to_string());
+            }
+
+            if let Some(msg) = &self.save_feedback {
+                ui.add_space(6.0);
+                ui.label(RichText::new(msg).color(self.theme.focus_green).size(12.0));
             }
         });
     }

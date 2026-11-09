@@ -1,8 +1,10 @@
 mod app;
 mod flowmodoro;
+mod i18n;
 mod impulse;
 mod ramdump;
 mod storage;
+mod theme;
 
 use app::TetherApp;
 use eframe::egui;

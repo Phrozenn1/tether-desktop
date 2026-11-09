@@ -1,4 +1,4 @@
-use crate::storage;
+use crate::storage::{self, TetherSettings};
 
 pub struct ImpulseState {
     pub input_text: String,
@@ -8,9 +8,10 @@ pub struct ImpulseState {
 
 impl Default for ImpulseState {
     fn default() -> Self {
+        let settings = storage::load_settings();
         Self {
             input_text: String::new(),
-            items: storage::load_impulses(),
+            items: storage::load_impulses_with_settings(&settings),
             feedback: None,
         }
     }
@@ -21,25 +22,47 @@ impl ImpulseState {
         Self::default()
     }
 
-    pub fn capture(&mut self) -> Result<(), std::io::Error> {
+    pub fn reload(&mut self, settings: &TetherSettings) {
+        self.items = storage::load_impulses_with_settings(settings);
+    }
+
+    pub fn capture_with_settings(&mut self, settings: &TetherSettings) -> Result<(), std::io::Error> {
         let trimmed = self.input_text.trim();
         if trimmed.is_empty() {
             return Ok(());
         }
 
-        storage::append_impulse(trimmed)?;
-        self.items = storage::load_impulses();
+        storage::append_impulse_with_settings(settings, trimmed)?;
+        self.items = storage::load_impulses_with_settings(settings);
         self.input_text.clear();
-        self.feedback = Some("Strøtanke forankret! ⚓ Tilbake til flyten.".to_string());
+        let msg = match settings.language {
+            storage::Language::Norwegian => "Strøtanke forankret! ⚓ Tilbake til flyten.",
+            storage::Language::English => "Side-quest captured! ⚓ Return to flow.",
+        };
+        self.feedback = Some(msg.to_string());
         Ok(())
     }
 
-    pub fn remove(&mut self, index: usize) -> Result<(), std::io::Error> {
+    pub fn remove_with_settings(&mut self, settings: &TetherSettings, index: usize) -> Result<(), std::io::Error> {
         if index < self.items.len() {
             self.items.remove(index);
-            storage::save_all_impulses(&self.items)?;
-            self.feedback = Some("Oppgave fullført og fjernet! ✓".to_string());
+            storage::save_all_impulses_with_settings(settings, &self.items)?;
+            let msg = match settings.language {
+                storage::Language::Norwegian => "Oppgave fullført og fjernet! ✓",
+                storage::Language::English => "Task completed and removed! ✓",
+            };
+            self.feedback = Some(msg.to_string());
         }
         Ok(())
+    }
+
+    pub fn capture(&mut self) -> Result<(), std::io::Error> {
+        let settings = storage::load_settings();
+        self.capture_with_settings(&settings)
+    }
+
+    pub fn remove(&mut self, index: usize) -> Result<(), std::io::Error> {
+        let settings = storage::load_settings();
+        self.remove_with_settings(&settings, index)
     }
 }
