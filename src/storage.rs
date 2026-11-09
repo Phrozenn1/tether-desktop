@@ -551,3 +551,245 @@ pub fn open_or_focus_neovim(terminal_cmd: &str) {
             .spawn();
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ContextAnchor {
+    #[serde(default)]
+    pub timestamp: u64,
+    #[serde(default)]
+    pub project_name: String,
+    #[serde(default)]
+    pub project_path: String,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(default)]
+    pub file_path: String,
+    #[serde(default)]
+    pub relative_path: String,
+    #[serde(default)]
+    pub line: usize,
+    #[serde(default)]
+    pub col: usize,
+    #[serde(default)]
+    pub last_note: String,
+    #[serde(default)]
+    pub server_name: String,
+}
+
+pub fn get_context_anchor_file() -> PathBuf {
+    get_data_dir().join("context_anchor.json")
+}
+
+pub fn load_context_anchor() -> Option<ContextAnchor> {
+    let path = get_context_anchor_file();
+    if let Ok(bytes) = std::fs::read(path) {
+        if let Ok(anchor) = serde_json::from_slice::<ContextAnchor>(&bytes) {
+            if !anchor.file_path.is_empty() {
+                return Some(anchor);
+            }
+        }
+    }
+    None
+}
+
+pub fn resume_in_neovim(anchor: &ContextAnchor, terminal_cmd: &str) {
+    let socket_alive = !anchor.server_name.is_empty() && std::path::Path::new(&anchor.server_name).exists();
+    if socket_alive {
+        let cmd = format!("\x1c\x0e:e +{} {}\r", anchor.line, anchor.file_path);
+        let _ = std::process::Command::new("nvim")
+            .args(["--server", &anchor.server_name, "--remote-send", &cmd])
+            .spawn();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(output) = std::process::Command::new("hyprctl").args(["clients", "-j"]).output() {
+            if let Ok(clients) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                if let Some(arr) = clients.as_array() {
+                    let nvim_client = arr.iter().find(|c| {
+                        let class = c["class"].as_str().unwrap_or("").to_lowercase();
+                        let title = c["title"].as_str().unwrap_or("").to_lowercase();
+                        class.contains("nvim") || title.contains("nvim") || class.contains("ghostty") || class.contains("kitty") || class.contains("alacritty")
+                    });
+                    if let Some(c) = nvim_client {
+                        if let Some(address) = c["address"].as_str() {
+                            let _ = std::process::Command::new("hyprctl")
+                                .args(["dispatch", "focuswindow", &format!("address:{}", address)])
+                                .output();
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !socket_alive {
+        let parts: Vec<&str> = terminal_cmd.split_whitespace().collect();
+        if !parts.is_empty() {
+            let mut args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+            args.push(format!("+{}", anchor.line));
+            args.push(anchor.file_path.clone());
+            let _ = std::process::Command::new(parts[0])
+                .args(&args)
+                .spawn();
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MomentumTier {
+    Spark,       // 0 - 499 XP
+    FlowRider,   // 500 - 1999 XP
+    DeepDiver,   // 2000 - 4999 XP
+    CodeWizard,  // 5000+ XP
+}
+
+impl MomentumTier {
+    pub fn title_no(&self) -> &'static str {
+        match self {
+            MomentumTier::Spark => "⚡ Gnist",
+            MomentumTier::FlowRider => "🌊 Flyt-rytter",
+            MomentumTier::DeepDiver => "🚀 Dypdykker",
+            MomentumTier::CodeWizard => "🧙‍♂️ Flyt-mester",
+        }
+    }
+
+    pub fn title_en(&self) -> &'static str {
+        match self {
+            MomentumTier::Spark => "⚡ Spark",
+            MomentumTier::FlowRider => "🌊 Flow Rider",
+            MomentumTier::DeepDiver => "🚀 Deep Diver",
+            MomentumTier::CodeWizard => "🧙‍♂️ Flow Master",
+        }
+    }
+
+    pub fn current_threshold(&self) -> u64 {
+        match self {
+            MomentumTier::Spark => 0,
+            MomentumTier::FlowRider => 500,
+            MomentumTier::DeepDiver => 2000,
+            MomentumTier::CodeWizard => 5000,
+        }
+    }
+
+    pub fn next_threshold(&self) -> u64 {
+        match self {
+            MomentumTier::Spark => 500,
+            MomentumTier::FlowRider => 2000,
+            MomentumTier::DeepDiver => 5000,
+            MomentumTier::CodeWizard => 10000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserStats {
+    #[serde(default)]
+    pub total_focus_mins: u64,
+    #[serde(default)]
+    pub current_week_mins: u64,
+    #[serde(default)]
+    pub current_week_sessions: u32,
+    #[serde(default)]
+    pub current_week_impulses_captured: u32,
+    #[serde(default = "default_week_identifier")]
+    pub week_identifier: String,
+    #[serde(default)]
+    pub daily_mins: std::collections::HashMap<String, u32>,
+    #[serde(default)]
+    pub xp: u64,
+}
+
+fn default_week_identifier() -> String {
+    chrono::Local::now().format("%G-W%V").to_string()
+}
+
+impl Default for UserStats {
+    fn default() -> Self {
+        Self {
+            total_focus_mins: 0,
+            current_week_mins: 0,
+            current_week_sessions: 0,
+            current_week_impulses_captured: 0,
+            week_identifier: default_week_identifier(),
+            daily_mins: std::collections::HashMap::new(),
+            xp: 0,
+        }
+    }
+}
+
+impl UserStats {
+    pub fn tier(&self) -> MomentumTier {
+        if self.xp < 500 {
+            MomentumTier::Spark
+        } else if self.xp < 2000 {
+            MomentumTier::FlowRider
+        } else if self.xp < 5000 {
+            MomentumTier::DeepDiver
+        } else {
+            MomentumTier::CodeWizard
+        }
+    }
+
+    pub fn check_week_rollover(&mut self) {
+        let current_week = default_week_identifier();
+        if self.week_identifier != current_week {
+            self.week_identifier = current_week;
+            self.current_week_mins = 0;
+            self.current_week_sessions = 0;
+            self.current_week_impulses_captured = 0;
+        }
+    }
+
+    pub fn record_focus_minutes(&mut self, minutes: u64) {
+        if minutes == 0 {
+            return;
+        }
+        self.check_week_rollover();
+        self.total_focus_mins += minutes;
+        self.current_week_mins += minutes;
+        self.current_week_sessions += 1;
+        self.xp += minutes * 10;
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let current = self.daily_mins.entry(today).or_insert(0);
+        *current += minutes as u32;
+    }
+
+    pub fn record_micro_start(&mut self) {
+        self.check_week_rollover();
+        self.xp += 100;
+    }
+
+    pub fn record_impulse(&mut self) {
+        self.check_week_rollover();
+        self.current_week_impulses_captured += 1;
+        self.xp += 25;
+    }
+}
+
+pub fn get_stats_file() -> PathBuf {
+    get_data_dir().join("stats.json")
+}
+
+pub fn load_user_stats() -> UserStats {
+    let path = get_stats_file();
+    if let Ok(bytes) = std::fs::read(&path) {
+        if let Ok(mut stats) = serde_json::from_slice::<UserStats>(&bytes) {
+            stats.check_week_rollover();
+            return stats;
+        }
+    }
+    UserStats::default()
+}
+
+pub fn save_user_stats(stats: &UserStats) -> Result<(), std::io::Error> {
+    let path = get_stats_file();
+    if let Some(parent) = path.parent() {
+        create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(stats)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(path, json)?;
+    Ok(())
+}

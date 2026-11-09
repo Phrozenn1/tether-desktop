@@ -67,6 +67,62 @@ impl Strings {
         }
     }
 
+    pub fn lbl_context_anchor(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "⚓ Kontekst-anker (Hvor slapp du?)",
+            Language::English => "⚓ Context Anchor (Resume Flow)",
+        }
+    }
+
+    pub fn btn_resume_neovim(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "🚀 Gjenoppta i Neovim",
+            Language::English => "🚀 Resume in Neovim",
+        }
+    }
+
+    pub fn lbl_no_anchor(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Ingen aktiv kodekontekst ennå. Åpne en fil i Neovim for å forankre flyten.",
+            Language::English => "No active code context yet. Open a file in Neovim to anchor flow.",
+        }
+    }
+
+    pub fn lbl_momentum_title(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "🔥 Momentum & Flyt-XP",
+            Language::English => "🔥 Momentum & Flow XP",
+        }
+    }
+
+    pub fn lbl_weekly_flow(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Ukens flyt",
+            Language::English => "Weekly flow",
+        }
+    }
+
+    pub fn lbl_impulses_shielded(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Parkerte impulser",
+            Language::English => "Shielded impulses",
+        }
+    }
+
+    pub fn lbl_sessions_count(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Fullførte økter",
+            Language::English => "Completed sessions",
+        }
+    }
+
+    pub fn lbl_no_shame_motto(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Ingen tapte streaks her – hvert minutt du legger ned teller! ⚡",
+            Language::English => "No broken streaks here – every single minute counts! ⚡",
+        }
+    }
+
     pub fn drag_tooltip(lang: Language) -> &'static str {
         match lang {
             Language::Norwegian => "Dra for å flytte (eller Super + Venstreklikk)",

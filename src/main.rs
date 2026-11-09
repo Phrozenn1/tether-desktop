@@ -1,31 +1,23 @@
-mod app;
 mod audio;
 mod flowmodoro;
 mod i18n;
 mod impulse;
 mod ramdump;
 mod storage;
-mod theme;
+mod ui;
 
-use app::TetherApp;
-use eframe::egui;
+use libadwaita::prelude::*;
+use libadwaita::Application;
+use ui::TetherUi;
 
-fn main() -> eframe::Result<()> {
-    let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_app_id("tether")
-            .with_inner_size([260.0, 46.0])
-            .with_min_inner_size([180.0, 40.0])
-            .with_title("Tether — ADHD Flow & Save-State")
-            .with_always_on_top()
-            .with_decorations(false)
-            .with_transparent(true),
-        ..Default::default()
-    };
+fn main() {
+    let app = Application::builder()
+        .application_id("org.tether.Tether")
+        .build();
 
-    eframe::run_native(
-        "Tether",
-        native_options,
-        Box::new(|cc| Ok(Box::new(TetherApp::new(cc)))),
-    )
+    app.connect_activate(|app| {
+        let _ui = TetherUi::build(app);
+    });
+
+    app.run();
 }
