@@ -1,4 +1,5 @@
 mod app;
+mod audio;
 mod flowmodoro;
 mod i18n;
 mod impulse;

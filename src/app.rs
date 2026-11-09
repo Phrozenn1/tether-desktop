@@ -19,6 +19,8 @@ enum ActiveTab {
 
 pub struct TetherApp {
     flow: Flowmodoro,
+    audio: crate::audio::SoundscapePlayer,
+    previous_flow_state: FlowState,
     ramdump: RamDumpState,
     impulse: ImpulseState,
     settings: TetherSettings,
@@ -43,8 +45,17 @@ impl Default for TetherApp {
         flow.focus_ratio = settings.ratio_focus;
         flow.break_ratio = settings.ratio_break;
 
+        let audio = crate::audio::SoundscapePlayer::new(
+            settings.soundscape,
+            settings.soundscape_volume,
+            settings.soundscape_auto_play,
+        );
+        let previous_flow_state = flow.state;
+
         Self {
             flow,
+            audio,
+            previous_flow_state,
             ramdump: RamDumpState::new(),
             impulse: ImpulseState::new(),
             settings,
@@ -340,6 +351,13 @@ impl eframe::App for TetherApp {
         self.flow.tick(dt);
         self.check_os_theme(ctx);
 
+        let old_state = self.previous_flow_state;
+        let new_state = self.flow.state;
+        if old_state != new_state {
+            self.previous_flow_state = new_state;
+            self.audio.handle_flow_state_transition(old_state, new_state);
+        }
+
         // Synkronisering og repainting
         ctx.request_repaint_after(std::time::Duration::from_millis(300));
 
@@ -407,6 +425,14 @@ impl TetherApp {
     fn render_mini_hud_window(&mut self, ctx: &egui::Context) {
         let lang = self.settings.language;
         let (border_color, dot_color, aura_color, text_color, badge_bg, tag) = match self.flow.state {
+            FlowState::MicroStart => (
+                Color32::from_rgb(250, 185, 45),
+                Color32::from_rgb(250, 185, 45),
+                Color32::from_rgba_premultiplied(250, 185, 45, 65),
+                Color32::from_rgb(255, 245, 215),
+                Color32::from_rgba_premultiplied(65, 45, 10, 200),
+                Strings::tag_micro(lang),
+            ),
             FlowState::Focus => (
                 self.theme.focus_green,
                 self.theme.focus_green,
@@ -512,9 +538,10 @@ impl TetherApp {
                         self.toggle_hud_mode(ctx);
                     }
 
-                    // Handlingsikon (Start/Pause hurtigknapp)
+                    // Handlingsikon (Start/Pause/Avbryt hurtigknapp)
                     let action_icon = match self.flow.state {
                         FlowState::Idle => "▶",
+                        FlowState::MicroStart => "✕",
                         FlowState::Focus => "☕",
                         FlowState::Break => "⏹",
                     };
@@ -525,6 +552,33 @@ impl TetherApp {
                     .frame(false);
                     if ui.add(act_btn).on_hover_text(Strings::time_toggle_tooltip(lang)).clicked() {
                         self.flow.toggle();
+                    }
+
+                    // Fokus-lyd hurtigknapp
+                    let sound_color = if self.audio.is_playing {
+                        self.theme.accent
+                    } else {
+                        self.theme.text_muted
+                    };
+                    let sound_btn = egui::Button::new(
+                        RichText::new("🎧").size(12.0).color(sound_color),
+                    )
+                    .min_size(Vec2::new(22.0, 22.0))
+                    .frame(false);
+                    if ui.add(sound_btn).on_hover_text(if self.audio.is_playing { "Stopp fokus-lyd" } else { "Start fokus-lyd" }).clicked() {
+                        self.audio.toggle_play();
+                    }
+
+                    // ⚡ Mikro-start hurtigknapp når i Idle
+                    if self.flow.state == FlowState::Idle {
+                        let micro_btn = egui::Button::new(
+                            RichText::new("⚡").size(12.0).color(Color32::from_rgb(250, 185, 45)),
+                        )
+                        .min_size(Vec2::new(22.0, 22.0))
+                        .frame(false);
+                        if ui.add(micro_btn).on_hover_text(Strings::btn_micro_tooltip(lang)).clicked() {
+                            self.flow.start_micro_start();
+                        }
                     }
                 });
             });
@@ -565,6 +619,7 @@ impl TetherApp {
     fn render_full_dashboard(&mut self, ctx: &egui::Context) {
         let lang = self.settings.language;
         let (border_color, status_text) = match self.flow.state {
+            FlowState::MicroStart => (Color32::from_rgb(250, 185, 45), Strings::tag_micro(lang)),
             FlowState::Focus => (self.theme.focus_green, Strings::tag_focus(lang)),
             FlowState::Break => (self.theme.break_red, Strings::tag_break(lang)),
             FlowState::Idle => (self.theme.idle_color, Strings::tag_ready(lang)),
@@ -700,6 +755,7 @@ impl TetherApp {
     fn render_flowmodoro(&mut self, ui: &mut egui::Ui) {
         let lang = self.settings.language;
         let (status_text, border_color, text_color) = match self.flow.state {
+            FlowState::MicroStart => ("⚡ MIKRO-START (5 MIN)", Color32::from_rgb(250, 185, 45), Color32::from_rgb(250, 185, 45)),
             FlowState::Focus => (Strings::focus_title(lang), self.theme.focus_green, self.theme.focus_green),
             FlowState::Break => (Strings::break_title(lang), self.theme.break_red, self.theme.break_red),
             FlowState::Idle => (Strings::ready_title(lang), self.theme.idle_color, self.theme.text_muted),
@@ -727,6 +783,13 @@ impl TetherApp {
                     );
 
                     let sub_info = match self.flow.state {
+                        FlowState::MicroStart => {
+                            let rem = crate::flowmodoro::format_time(self.flow.micro_remaining_secs);
+                            match lang {
+                                Language::Norwegian => format!("⚡ Bare 5 min for å bryte dørstokkmila ({} gjenstår). Null skyldfølelse!", rem),
+                                Language::English => format!("⚡ Just 5 mins to melt the friction ({} left). Zero guilt!", rem),
+                            }
+                        }
                         FlowState::Focus => {
                             let earned = self.flow.calculate_break_time();
                             let earned_str = crate::flowmodoro::format_time(earned);
@@ -742,10 +805,11 @@ impl TetherApp {
 
             // Handlingsknapper
             ui.horizontal(|ui| {
-                ui.add_space(ui.available_width() / 4.5);
+                ui.add_space(ui.available_width() / 6.0);
 
                 let (btn_text, btn_fill, btn_fg) = match self.flow.state {
                     FlowState::Idle => (Strings::btn_start_focus(lang), Color32::from_rgb(35, 90, 55), Color32::from_rgb(230, 255, 240)),
+                    FlowState::MicroStart => ("✕ Avbryt (Null skyldfølelse)", Color32::from_rgb(90, 60, 20), Color32::from_rgb(255, 235, 180)),
                     FlowState::Focus => (Strings::btn_take_break(lang), Color32::from_rgb(110, 35, 40), Color32::from_rgb(255, 230, 230)),
                     FlowState::Break => (Strings::btn_end_break(lang), self.theme.bg_card, self.theme.text_primary),
                 };
@@ -753,10 +817,20 @@ impl TetherApp {
                 let main_btn = egui::Button::new(RichText::new(btn_text).size(15.0).strong().color(btn_fg))
                     .fill(btn_fill)
                     .rounding(10.0)
-                    .min_size(Vec2::new(160.0, 42.0));
+                    .min_size(Vec2::new(150.0, 42.0));
 
                 if ui.add(main_btn).clicked() {
                     self.flow.toggle();
+                }
+
+                if self.flow.state == FlowState::Idle {
+                    let micro_btn = egui::Button::new(RichText::new(Strings::btn_micro_start(lang)).size(14.0).strong().color(Color32::from_rgb(255, 235, 180)))
+                        .fill(Color32::from_rgb(90, 65, 15))
+                        .rounding(10.0)
+                        .min_size(Vec2::new(140.0, 42.0));
+                    if ui.add(micro_btn).on_hover_text(Strings::btn_micro_tooltip(lang)).clicked() {
+                        self.flow.start_micro_start();
+                    }
                 }
 
                 if self.flow.is_active() {
@@ -1087,6 +1161,75 @@ impl TetherApp {
                             self.flow.broadcast_state();
                         }
                     });
+                });
+
+            ui.add_space(10.0);
+
+            // Seksjon: Fokus-lyd & Støygenerator
+            egui::Frame::none()
+                .fill(self.theme.bg_panel)
+                .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
+                .rounding(10.0)
+                .inner_margin(12.0)
+                .show(ui, |ui| {
+                    ui.label(RichText::new(Strings::sec_soundscape(lang)).strong().size(13.0).color(self.theme.accent));
+                    ui.add_space(6.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(Strings::lbl_soundscape_type(lang)).size(12.0));
+                        let mut current_sound = self.audio.current_type;
+                        let sound_label = match lang {
+                            Language::Norwegian => current_sound.label_no(),
+                            Language::English => current_sound.label_en(),
+                        };
+
+                        egui::ComboBox::from_id_salt("soundscape_selector")
+                            .selected_text(sound_label)
+                            .show_ui(ui, |ui| {
+                                for st in [
+                                    crate::audio::SoundscapeType::Off,
+                                    crate::audio::SoundscapeType::BrownNoise,
+                                    crate::audio::SoundscapeType::PinkNoise,
+                                    crate::audio::SoundscapeType::GentleRain,
+                                ] {
+                                    let l = match lang {
+                                        Language::Norwegian => st.label_no(),
+                                        Language::English => st.label_en(),
+                                    };
+                                    ui.selectable_value(&mut current_sound, st, l);
+                                }
+                            });
+
+                        if current_sound != self.audio.current_type {
+                            self.audio.set_sound(current_sound);
+                            self.settings.soundscape = current_sound;
+                            let _ = storage::save_settings(&self.settings);
+                        }
+
+                        // Test avspilling knapp
+                        let play_icon = if self.audio.is_playing { "⏸ Pause" } else { "▶ Spill" };
+                        if ui.button(play_icon).clicked() {
+                            self.audio.toggle_play();
+                        }
+                    });
+
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(Strings::lbl_soundscape_vol(lang)).size(12.0));
+                        let mut vol = self.audio.volume;
+                        if ui.add(egui::Slider::new(&mut vol, 0.0..=1.0).show_value(false)).changed() {
+                            self.audio.set_volume(vol);
+                            self.settings.soundscape_volume = vol;
+                            let _ = storage::save_settings(&self.settings);
+                        }
+                        ui.label(format!("{:.0}%", vol * 100.0));
+                    });
+
+                    ui.add_space(6.0);
+                    if ui.checkbox(&mut self.settings.soundscape_auto_play, Strings::chk_soundscape_auto(lang)).changed() {
+                        self.audio.auto_play_on_focus = self.settings.soundscape_auto_play;
+                        let _ = storage::save_settings(&self.settings);
+                    }
                 });
 
             ui.add_space(10.0);

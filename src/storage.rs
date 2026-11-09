@@ -59,6 +59,12 @@ pub struct TetherSettings {
     pub locked_monitor: String,
     #[serde(default)]
     pub custom_pos_mini: Option<(i32, i32)>,
+    #[serde(default = "default_soundscape")]
+    pub soundscape: crate::audio::SoundscapeType,
+    #[serde(default = "default_soundscape_volume")]
+    pub soundscape_volume: f32,
+    #[serde(default = "default_true")]
+    pub soundscape_auto_play: bool,
 }
 
 fn default_focus_ratio() -> u32 { 45 }
@@ -66,6 +72,8 @@ fn default_break_ratio() -> u32 { 15 }
 fn default_true() -> bool { true }
 fn default_locked_monitor() -> String { "auto".to_string() }
 fn default_terminal_command() -> String { "xdg-terminal-exec nvim".to_string() }
+fn default_soundscape() -> crate::audio::SoundscapeType { crate::audio::SoundscapeType::Off }
+fn default_soundscape_volume() -> f32 { 0.45 }
 fn default_side_quests_file() -> String {
     get_data_dir().join("impulses.md").to_string_lossy().to_string()
 }
@@ -84,6 +92,9 @@ impl Default for TetherSettings {
             remind_ramdump: true,
             locked_monitor: default_locked_monitor(),
             custom_pos_mini: None,
+            soundscape: default_soundscape(),
+            soundscape_volume: default_soundscape_volume(),
+            soundscape_auto_play: true,
         }
     }
 }

@@ -4,6 +4,7 @@ use crate::storage::{self, SharedFlowState};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlowState {
     Idle,
+    MicroStart,
     Focus,
     Break,
 }
@@ -14,6 +15,7 @@ pub struct Flowmodoro {
     pub break_ratio: u32,
     pub elapsed_focus_secs: u64,
     pub remaining_break_secs: u64,
+    pub micro_remaining_secs: u64,
     pub initial_break_secs: u64,
     pub total_focus_secs: u64,
     pub start_epoch: u64,
@@ -31,6 +33,7 @@ impl Default for Flowmodoro {
             break_ratio: 15,
             elapsed_focus_secs: 0,
             remaining_break_secs: 0,
+            micro_remaining_secs: 300,
             initial_break_secs: 0,
             total_focus_secs: 0,
             start_epoch: 0,
@@ -61,6 +64,7 @@ impl Flowmodoro {
     pub fn broadcast_state(&self) {
         let state_str = match self.state {
             FlowState::Idle => "idle",
+            FlowState::MicroStart => "micro_start",
             FlowState::Focus => "focus",
             FlowState::Break => "break",
         };
@@ -95,6 +99,16 @@ impl Flowmodoro {
 
                 let now = now_epoch();
                 match shared.state.as_str() {
+                    "micro_start" => {
+                        self.state = FlowState::MicroStart;
+                        self.start_epoch = shared.start_epoch;
+                        let elapsed = if self.start_epoch > 0 && now >= self.start_epoch {
+                            now - self.start_epoch
+                        } else {
+                            0
+                        };
+                        self.micro_remaining_secs = 300_u64.saturating_sub(elapsed);
+                    }
                     "focus" => {
                         self.state = FlowState::Focus;
                         self.start_epoch = shared.start_epoch;
@@ -125,6 +139,30 @@ impl Flowmodoro {
                 }
             }
         }
+    }
+
+    pub fn start_micro_start(&mut self) {
+        self.state = FlowState::MicroStart;
+        self.elapsed_focus_secs = 0;
+        self.micro_remaining_secs = 300;
+        self.accumulator = Duration::ZERO;
+        self.start_epoch = now_epoch();
+        self.seq += 1;
+        self.last_synced_seq = self.seq;
+        self.broadcast_state();
+
+        notify(
+            "⚡ Mikro-start (5 min)",
+            "Terskelen er senket! Jobb uforstyrret i 5 minutter – du har lov til å stoppe etterpå.",
+        );
+    }
+
+    pub fn cancel_micro_start(&mut self) {
+        self.reset();
+        notify(
+            "Bra forsøk! 🤍",
+            "Helt greit å stoppe her. Null skyldfølelse – prøv igjen senere når du er klar.",
+        );
     }
 
     pub fn start_focus(&mut self) {
@@ -178,6 +216,7 @@ impl Flowmodoro {
     pub fn toggle(&mut self) {
         match self.state {
             FlowState::Idle => self.start_focus(),
+            FlowState::MicroStart => self.cancel_micro_start(),
             FlowState::Focus => self.start_break(),
             FlowState::Break => self.reset(),
         }
@@ -213,6 +252,27 @@ impl Flowmodoro {
 
         let now = now_epoch();
         match self.state {
+            FlowState::MicroStart => {
+                let elapsed = if self.start_epoch > 0 && now >= self.start_epoch {
+                    now - self.start_epoch
+                } else {
+                    0
+                };
+                if elapsed >= 300 {
+                    // 5 min fullført! Glir automatisk over i Fokus
+                    self.state = FlowState::Focus;
+                    self.elapsed_focus_secs = elapsed;
+                    self.seq += 1;
+                    self.last_synced_seq = self.seq;
+                    self.broadcast_state();
+                    notify(
+                        "5 minutter fullført! ⚡🎉",
+                        "Terskelen er brutt og du er i gang! Fortsett flyten så lenge det føles bra.",
+                    );
+                } else {
+                    self.micro_remaining_secs = 300_u64.saturating_sub(elapsed);
+                }
+            }
             FlowState::Focus => {
                 if self.start_epoch > 0 && now >= self.start_epoch {
                     self.elapsed_focus_secs = now - self.start_epoch;
@@ -246,6 +306,7 @@ impl Flowmodoro {
 
     pub fn current_time_display(&self) -> String {
         match self.state {
+            FlowState::MicroStart => format_time(self.micro_remaining_secs),
             FlowState::Focus => format_time(self.elapsed_focus_secs),
             FlowState::Break => format_time(self.remaining_break_secs),
             FlowState::Idle => "00:00".to_string(),
@@ -255,6 +316,10 @@ impl Flowmodoro {
     pub fn progress_pct(&self) -> f32 {
         match self.state {
             FlowState::Idle => 0.0,
+            FlowState::MicroStart => {
+                let elapsed = 300_u64.saturating_sub(self.micro_remaining_secs);
+                (elapsed as f32 / 300.0).clamp(0.0, 1.0)
+            }
             FlowState::Focus => {
                 let target = (self.focus_ratio as f32 * 60.0).max(60.0);
                 (self.elapsed_focus_secs as f32 / target).clamp(0.0, 1.0)

@@ -7,6 +7,10 @@ impl Strings {
         "FOKUS"
     }
 
+    pub fn tag_micro(_lang: Language) -> &'static str {
+        "⚡ 5 MIN"
+    }
+
     pub fn tag_break(lang: Language) -> &'static str {
         match lang {
             Language::Norwegian => "PAUSE",
@@ -18,6 +22,48 @@ impl Strings {
         match lang {
             Language::Norwegian => "KLAR",
             Language::English => "READY",
+        }
+    }
+
+    pub fn btn_micro_start(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "⚡ 5m Mikro-start",
+            Language::English => "⚡ 5m Micro-start",
+        }
+    }
+
+    pub fn btn_micro_tooltip(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Start en uforpliktende 5-minutters økt for å bryte oppstartssperren",
+            Language::English => "Start a zero-guilt 5-minute session to melt task initiation friction",
+        }
+    }
+
+    pub fn sec_soundscape(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Fokus-lyd & Støygenerator",
+            Language::English => "Focus Sound & Ambient Noise",
+        }
+    }
+
+    pub fn lbl_soundscape_type(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Lydtype:",
+            Language::English => "Sound type:",
+        }
+    }
+
+    pub fn lbl_soundscape_vol(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Volum:",
+            Language::English => "Volume:",
+        }
+    }
+
+    pub fn chk_soundscape_auto(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Start lyden automatisk ved Fokus og Mikro-start",
+            Language::English => "Auto-play sound during Focus and Micro-start",
         }
     }
 
