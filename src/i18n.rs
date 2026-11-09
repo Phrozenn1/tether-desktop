@@ -420,6 +420,13 @@ impl Strings {
         }
     }
 
+    pub fn btn_browse(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "📁 Bla gjennom...",
+            Language::English => "📁 Browse...",
+        }
+    }
+
     pub fn lbl_format(lang: Language) -> &'static str {
         match lang {
             Language::Norwegian => "Filformat:",
@@ -501,6 +508,20 @@ impl Strings {
         match lang {
             Language::Norwegian => "🎯 Flytt til valgt skjerm nå",
             Language::English => "🎯 Move to selected display now",
+        }
+    }
+
+    pub fn lbl_saved_pos(lang: Language, x: i32, y: i32) -> String {
+        match lang {
+            Language::Norwegian => format!("📌 Husket vindusposisjon: X={}, Y={}", x, y),
+            Language::English => format!("📌 Remembered window position: X={}, Y={}", x, y),
+        }
+    }
+
+    pub fn btn_reset_pos(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "↺ Nullstill posisjon til standard hjørne",
+            Language::English => "↺ Reset position to default corner",
         }
     }
 

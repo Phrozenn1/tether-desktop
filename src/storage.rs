@@ -57,6 +57,8 @@ pub struct TetherSettings {
     pub remind_ramdump: bool,
     #[serde(default = "default_locked_monitor")]
     pub locked_monitor: String,
+    #[serde(default)]
+    pub custom_pos_mini: Option<(i32, i32)>,
 }
 
 fn default_focus_ratio() -> u32 { 45 }
@@ -81,6 +83,7 @@ impl Default for TetherSettings {
             notifications_enabled: true,
             remind_ramdump: true,
             locked_monitor: default_locked_monitor(),
+            custom_pos_mini: None,
         }
     }
 }
@@ -286,6 +289,43 @@ struct JsonTask {
     timestamp: String,
     text: String,
     done: bool,
+}
+
+pub fn pick_impulse_file() -> Option<PathBuf> {
+    // 1. System file dialog via rfd
+    if let Some(path) = rfd::FileDialog::new()
+        .set_title("Velg fil for side-quests / impulser")
+        .add_filter("Markdown (*.md)", &["md"])
+        .add_filter("Tekstfiler (*.txt)", &["txt"])
+        .add_filter("JSON (*.json)", &["json"])
+        .add_filter("Alle filer (*.*)", &["*"])
+        .save_file()
+    {
+        return Some(path);
+    }
+
+    // 2. Fallback til zenity på Linux hvis tilgjengelig
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(out) = std::process::Command::new("zenity")
+            .args([
+                "--file-selection",
+                "--save",
+                "--confirm-overwrite",
+                "--title=Velg fil for side-quests / impulser",
+            ])
+            .output()
+        {
+            if out.status.success() {
+                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !s.is_empty() {
+                    return Some(PathBuf::from(s));
+                }
+            }
+        }
+    }
+
+    None
 }
 
 pub fn append_impulse_with_settings(settings: &TetherSettings, text: &str) -> Result<(), std::io::Error> {

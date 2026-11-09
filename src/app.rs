@@ -29,6 +29,7 @@ pub struct TetherApp {
     is_mini_hud: bool,
     last_update: Instant,
     last_theme_check: Instant,
+    last_pos_check: Instant,
     current_yak_idx: usize,
     save_feedback: Option<String>,
 }
@@ -54,6 +55,7 @@ impl Default for TetherApp {
             is_mini_hud: true,
             last_update: Instant::now(),
             last_theme_check: Instant::now(),
+            last_pos_check: Instant::now(),
             current_yak_idx: 0,
             save_feedback: None,
         }
@@ -88,8 +90,18 @@ impl TetherApp {
 
         let app = Self::default();
         app.apply_visuals(&cc.egui_ctx);
-        if app.settings.locked_monitor != "auto" && !app.settings.locked_monitor.is_empty() {
-            move_window_to_monitor(&app.settings.locked_monitor, app.is_mini_hud);
+        if let Some((x, y)) = app.settings.custom_pos_mini {
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                move_window_to_pos(x, y);
+            });
+        } else if app.settings.locked_monitor != "auto" && !app.settings.locked_monitor.is_empty() {
+            let mon = app.settings.locked_monitor.clone();
+            let is_mini = app.is_mini_hud;
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                move_window_to_monitor(&mon, is_mini);
+            });
         }
         app
     }
@@ -134,7 +146,8 @@ impl TetherApp {
         if self.is_mini_hud {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(260.0, 46.0)));
             #[cfg(target_os = "linux")]
-            hyprland_shrink(&self.settings.locked_monitor);
+            hyprland_shrink(&self.settings);
+            self.last_pos_check = Instant::now() + std::time::Duration::from_millis(500);
         } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(460.0, 580.0)));
             #[cfg(target_os = "linux")]
@@ -153,6 +166,54 @@ impl TetherApp {
                     self.apply_visuals(ctx);
                 }
             }
+        }
+    }
+}
+
+pub fn get_tether_window_pos() -> Option<(i32, i32)> {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            if let Ok(out) = std::process::Command::new("hyprctl")
+                .args(["clients", "-j"])
+                .output()
+            {
+                if out.status.success() {
+                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                        if let Some(arr) = val.as_array() {
+                            for client in arr {
+                                if client.get("class").and_then(|c| c.as_str()) == Some("tether") {
+                                    if let Some(at) = client.get("at").and_then(|a| a.as_array()) {
+                                        if at.len() == 2 {
+                                            if let (Some(x), Some(y)) = (at[0].as_i64(), at[1].as_i64()) {
+                                                return Some((x as i32, y as i32));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn move_window_to_pos(x: i32, y: i32) {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            std::thread::spawn(move || {
+                let move_cmd = format!(
+                    "hl.dsp.window.move({{ x = {}, y = {}, relative = false, window = \"class:tether\" }})",
+                    x, y
+                );
+                let _ = std::process::Command::new("hyprctl")
+                    .args(["dispatch", &move_cmd])
+                    .output();
+            });
         }
     }
 }
@@ -227,11 +288,12 @@ fn hyprland_expand(locked_monitor: &str) {
     }
 }
 
-fn hyprland_shrink(locked_monitor: &str) {
+fn hyprland_shrink(settings: &TetherSettings) {
     #[cfg(target_os = "linux")]
     {
         if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
-            let target_mon = get_target_monitor(locked_monitor);
+            let custom_pos = settings.custom_pos_mini;
+            let locked_mon = settings.locked_monitor.clone();
             std::thread::spawn(move || {
                 let _ = std::process::Command::new("hyprctl")
                     .args([
@@ -239,8 +301,7 @@ fn hyprland_shrink(locked_monitor: &str) {
                         "hl.dsp.window.resize({ x = 260, y = 46, relative = false, window = \"class:tether\" })",
                     ])
                     .output();
-                if let Some(mon) = target_mon {
-                    let (x, y) = mon.mini_hud_pos();
+                if let Some((x, y)) = custom_pos {
                     let move_cmd = format!(
                         "hl.dsp.window.move({{ x = {}, y = {}, relative = false, window = \"class:tether\" }})",
                         x, y
@@ -248,6 +309,18 @@ fn hyprland_shrink(locked_monitor: &str) {
                     let _ = std::process::Command::new("hyprctl")
                         .args(["dispatch", &move_cmd])
                         .output();
+                } else {
+                    let target_mon = get_target_monitor(&locked_mon);
+                    if let Some(mon) = target_mon {
+                        let (x, y) = mon.mini_hud_pos();
+                        let move_cmd = format!(
+                            "hl.dsp.window.move({{ x = {}, y = {}, relative = false, window = \"class:tether\" }})",
+                            x, y
+                        );
+                        let _ = std::process::Command::new("hyprctl")
+                            .args(["dispatch", &move_cmd])
+                            .output();
+                    }
                 }
             });
         }
@@ -278,6 +351,45 @@ impl eframe::App for TetherApp {
         // Escape krymper fullt dashboard tilbake til Mini-HUD
         if !self.is_mini_hud && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.toggle_hud_mode(ctx);
+        }
+
+        // Periodisk sjekk av vindusposisjon hvis brukeren har flyttet Mini-HUD med musen
+        if self.is_mini_hud && now >= self.last_pos_check && now.duration_since(self.last_pos_check) >= std::time::Duration::from_millis(800) {
+            self.last_pos_check = now;
+            if let Some((cur_x, cur_y)) = get_tether_window_pos() {
+                let default_pos = get_target_monitor(&self.settings.locked_monitor).map(|m| m.mini_hud_pos());
+                let is_at_default = if let Some((dx, dy)) = default_pos {
+                    (cur_x - dx).abs() <= 10 && (cur_y - dy).abs() <= 10
+                } else {
+                    false
+                };
+
+                let should_save = match self.settings.custom_pos_mini {
+                    Some((old_x, old_y)) => {
+                        if is_at_default {
+                            self.settings.custom_pos_mini = None;
+                            true
+                        } else if (cur_x - old_x).abs() > 4 || (cur_y - old_y).abs() > 4 {
+                            self.settings.custom_pos_mini = Some((cur_x, cur_y));
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    None => {
+                        if !is_at_default {
+                            self.settings.custom_pos_mini = Some((cur_x, cur_y));
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                };
+
+                if should_save {
+                    let _ = storage::save_settings(&self.settings);
+                }
+            }
         }
 
         // Mini-HUD modus
@@ -965,10 +1077,14 @@ impl TetherApp {
                         ui.label(RichText::new(Strings::ratio_title(lang)).size(12.0));
                         if ui.add(egui::DragValue::new(&mut self.settings.ratio_focus).range(1..=120).suffix("m")).changed() {
                             self.flow.focus_ratio = self.settings.ratio_focus;
+                            self.flow.seq += 1;
+                            self.flow.broadcast_state();
                         }
                         ui.label(":");
                         if ui.add(egui::DragValue::new(&mut self.settings.ratio_break).range(1..=60).suffix("m")).changed() {
                             self.flow.break_ratio = self.settings.ratio_break;
+                            self.flow.seq += 1;
+                            self.flow.broadcast_state();
                         }
                     });
                 });
@@ -986,7 +1102,14 @@ impl TetherApp {
                     ui.add_space(6.0);
 
                     ui.label(RichText::new(Strings::lbl_filepath(lang)).size(12.0));
-                    ui.add_sized([ui.available_width(), 26.0], egui::TextEdit::singleline(&mut self.settings.side_quests_file));
+                    ui.horizontal(|ui| {
+                        ui.add_sized([ui.available_width() - 110.0, 26.0], egui::TextEdit::singleline(&mut self.settings.side_quests_file));
+                        if ui.button(Strings::btn_browse(lang)).clicked() {
+                            if let Some(path) = storage::pick_impulse_file() {
+                                self.settings.side_quests_file = path.to_string_lossy().to_string();
+                            }
+                        }
+                    });
                     ui.add_space(6.0);
 
                     // Hurtigknapper for sti
@@ -1090,6 +1213,22 @@ impl TetherApp {
                     if ui.button(Strings::btn_move_now(lang)).clicked() {
                         move_window_to_monitor(&self.settings.locked_monitor, self.is_mini_hud);
                     }
+
+                    ui.add_space(8.0);
+                    if let Some((x, y)) = self.settings.custom_pos_mini {
+                        ui.label(RichText::new(Strings::lbl_saved_pos(lang, x, y)).size(12.0).color(self.theme.accent));
+                        if ui.button(Strings::btn_reset_pos(lang)).clicked() {
+                            self.settings.custom_pos_mini = None;
+                            move_window_to_monitor(&self.settings.locked_monitor, self.is_mini_hud);
+                            let _ = storage::save_settings(&self.settings);
+                        }
+                    } else {
+                        let default_text = match lang {
+                            Language::Norwegian => "📌 Posisjon: Standard hjørne (følger valgt skjerm)",
+                            Language::English => "📌 Position: Default corner (follows selected display)",
+                        };
+                        ui.label(RichText::new(default_text).size(12.0).color(self.theme.text_muted));
+                    }
                 });
 
             ui.add_space(10.0);
@@ -1120,6 +1259,8 @@ impl TetherApp {
             if ui.add(save_btn).clicked() {
                 self.flow.focus_ratio = self.settings.ratio_focus;
                 self.flow.break_ratio = self.settings.ratio_break;
+                self.flow.seq += 1;
+                self.flow.broadcast_state();
                 self.impulse.reload(&self.settings);
                 let _ = storage::save_settings(&self.settings);
                 self.save_feedback = Some(Strings::save_success(lang).to_string());

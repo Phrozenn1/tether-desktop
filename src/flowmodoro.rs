@@ -169,8 +169,8 @@ impl Flowmodoro {
         notify(
             "Fokusøkt fullført! ☕",
             &format!(
-                "Fokus: {}.\nOpptjent pause (45:15): {}.\nHusk en 60s RAM-dump!",
-                focus_fmt, break_fmt
+                "Fokus: {}.\nOpptjent pause ({}:{}): {}.\nHusk en 60s RAM-dump!",
+                focus_fmt, self.focus_ratio, self.break_ratio, break_fmt
             ),
         );
     }
