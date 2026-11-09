@@ -7,6 +7,10 @@ impl Strings {
         "FOKUS"
     }
 
+    pub fn tag_micro(_lang: Language) -> &'static str {
+        "⚡ 5 MIN"
+    }
+
     pub fn tag_break(lang: Language) -> &'static str {
         match lang {
             Language::Norwegian => "PAUSE",
@@ -18,6 +22,104 @@ impl Strings {
         match lang {
             Language::Norwegian => "KLAR",
             Language::English => "READY",
+        }
+    }
+
+    pub fn btn_micro_start(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "⚡ 5m Mikro-start",
+            Language::English => "⚡ 5m Micro-start",
+        }
+    }
+
+    pub fn btn_micro_tooltip(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Start en uforpliktende 5-minutters økt for å bryte oppstartssperren",
+            Language::English => "Start a zero-guilt 5-minute session to melt task initiation friction",
+        }
+    }
+
+    pub fn sec_soundscape(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Fokus-lyd & Støygenerator",
+            Language::English => "Focus Sound & Ambient Noise",
+        }
+    }
+
+    pub fn lbl_soundscape_type(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Lydtype:",
+            Language::English => "Sound type:",
+        }
+    }
+
+    pub fn lbl_soundscape_vol(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Volum:",
+            Language::English => "Volume:",
+        }
+    }
+
+    pub fn chk_soundscape_auto(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Start lyden automatisk ved Fokus og Mikro-start",
+            Language::English => "Auto-play sound during Focus and Micro-start",
+        }
+    }
+
+    pub fn lbl_context_anchor(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "⚓ Kontekst-anker (Hvor slapp du?)",
+            Language::English => "⚓ Context Anchor (Resume Flow)",
+        }
+    }
+
+    pub fn btn_resume_neovim(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "🚀 Gjenoppta i Neovim",
+            Language::English => "🚀 Resume in Neovim",
+        }
+    }
+
+    pub fn lbl_no_anchor(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Ingen aktiv kodekontekst ennå. Åpne en fil i Neovim for å forankre flyten.",
+            Language::English => "No active code context yet. Open a file in Neovim to anchor flow.",
+        }
+    }
+
+    pub fn lbl_momentum_title(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "🔥 Momentum & Flyt-XP",
+            Language::English => "🔥 Momentum & Flow XP",
+        }
+    }
+
+    pub fn lbl_weekly_flow(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Ukens flyt",
+            Language::English => "Weekly flow",
+        }
+    }
+
+    pub fn lbl_impulses_shielded(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Parkerte impulser",
+            Language::English => "Shielded impulses",
+        }
+    }
+
+    pub fn lbl_sessions_count(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Fullførte økter",
+            Language::English => "Completed sessions",
+        }
+    }
+
+    pub fn lbl_no_shame_motto(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Ingen tapte streaks her – hvert minutt du legger ned teller! ⚡",
+            Language::English => "No broken streaks here – every single minute counts! ⚡",
         }
     }
 
