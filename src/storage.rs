@@ -11,10 +11,56 @@ pub enum Language {
     English,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LanguageSetting {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "no")]
+    Norwegian,
+    #[serde(rename = "en")]
+    English,
+}
+
 impl Default for Language {
     fn default() -> Self {
-        Language::English
+        detect_system_locale()
     }
+}
+
+impl Default for LanguageSetting {
+    fn default() -> Self {
+        LanguageSetting::Auto
+    }
+}
+
+impl LanguageSetting {
+    pub fn resolve(&self) -> Language {
+        match self {
+            LanguageSetting::Auto => detect_system_locale(),
+            LanguageSetting::Norwegian => Language::Norwegian,
+            LanguageSetting::English => Language::English,
+        }
+    }
+}
+
+pub fn detect_system_locale() -> Language {
+    for name in gtk4::glib::language_names() {
+        let lower = name.to_lowercase();
+        if lower.starts_with("nb") || lower.starts_with("nn") || lower.starts_with("no") {
+            return Language::Norwegian;
+        }
+    }
+
+    for var in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+        if let Ok(val) = std::env::var(var) {
+            let lower = val.to_lowercase();
+            if lower.starts_with("nb") || lower.starts_with("nn") || lower.starts_with("no") {
+                return Language::Norwegian;
+            }
+        }
+    }
+
+    Language::English
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,7 +132,7 @@ impl EditorMinimizeAction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TetherSettings {
     #[serde(default)]
-    pub language: Language,
+    pub language: LanguageSetting,
     #[serde(default = "default_focus_ratio")]
     pub ratio_focus: u32,
     #[serde(default = "default_break_ratio")]
@@ -139,7 +185,7 @@ fn default_side_quests_file() -> String {
 impl Default for TetherSettings {
     fn default() -> Self {
         Self {
-            language: Language::English,
+            language: LanguageSetting::Auto,
             ratio_focus: 45,
             ratio_break: 15,
             side_quests_file: default_side_quests_file(),

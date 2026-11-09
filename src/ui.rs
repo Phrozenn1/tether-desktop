@@ -16,7 +16,7 @@ use crate::flowmodoro::{FlowState, Flowmodoro};
 use crate::i18n::Strings;
 use crate::impulse::ImpulseState;
 use crate::ramdump::RamDumpState;
-use crate::storage::{self, ContextAnchor, Language, SideQuestFormat, TetherSettings, UserStats};
+use crate::storage::{self, ContextAnchor, Language, LanguageSetting, SideQuestFormat, TetherSettings, UserStats};
 
 pub struct AppState {
     pub flow: Flowmodoro,
@@ -525,6 +525,32 @@ impl TetherUi {
         let settings_page = PreferencesPage::new();
         settings_page.set_vexpand(true);
         settings_page.set_hexpand(true);
+
+        // Group: Language & Locale
+        let initial_lang = initial_settings.language.resolve();
+        let set_general_group = PreferencesGroup::builder()
+            .title(match initial_lang { Language::Norwegian => "Språk & Utseende", _ => "Language & Appearance" })
+            .description(match initial_lang { Language::Norwegian => "Velg språk for Tether (auto-oppdages fra systemet)", _ => "Choose interface language (auto-detects from system)" })
+            .build();
+
+        let lang_items = [
+            "Auto (Følg system / System default)",
+            "Norsk (Bokmål)",
+            "English",
+        ];
+        let lang_models = gtk4::StringList::new(&lang_items);
+        let selected_lang_idx = match initial_settings.language {
+            LanguageSetting::Auto => 0,
+            LanguageSetting::Norwegian => 1,
+            LanguageSetting::English => 2,
+        };
+        let lang_combo = ComboRow::builder()
+            .title(match initial_lang { Language::Norwegian => "Språk / Language", _ => "Language" })
+            .model(&lang_models)
+            .selected(selected_lang_idx)
+            .build();
+        set_general_group.add(&lang_combo);
+        settings_page.add(&set_general_group);
 
         // Group: Flowmodoro
         let set_flow_group = PreferencesGroup::builder()
@@ -1050,6 +1076,20 @@ impl TetherUi {
                     ui_clone.capture_impulse(&text);
                     entry.set_text("");
                 }
+            });
+        }
+
+        // Event: Language selection
+        {
+            let state_clone = state.clone();
+            lang_combo.connect_selected_notify(move |combo| {
+                let mut st = state_clone.borrow_mut();
+                st.settings.language = match combo.selected() {
+                    1 => LanguageSetting::Norwegian,
+                    2 => LanguageSetting::English,
+                    _ => LanguageSetting::Auto,
+                };
+                let _ = storage::save_settings(&st.settings);
             });
         }
 
@@ -1672,7 +1712,7 @@ impl TetherUi {
 
         // Update Dynamic UI Labels
         let st = self.state.borrow();
-        let lang = st.settings.language;
+        let lang = st.settings.language.resolve();
         let timer_text = st.flow.current_time_display();
         self.timer_label.set_label(&timer_text);
         self.mini_timer.set_label(&timer_text);
@@ -1681,11 +1721,11 @@ impl TetherUi {
             FlowState::MicroStart => {
                 let rem = crate::flowmodoro::format_time(st.flow.micro_remaining_secs);
                 (
-                    "⚡ 5 MIN",
+                    Strings::tag_micro(lang),
                     "badge-micro",
                     match lang {
                         Language::Norwegian => format!("⚡ Bare 5 min for å bryte dørstokkmila ({} gjenstår). Null skyldfølelse!", rem),
-                        Language::English => format!("⚡ Just 5 mins to melt friction ({} left). Zero guilt!", rem),
+                        _ => format!("⚡ Just 5 mins to melt friction ({} left). Zero guilt!", rem),
                     },
                 )
             }
@@ -1693,18 +1733,18 @@ impl TetherUi {
                 let earned = st.flow.calculate_break_time();
                 let earned_str = crate::flowmodoro::format_time(earned);
                 (
-                    "FOKUS",
+                    Strings::tag_focus(lang),
                     "badge-focus",
                     Strings::sub_focus(lang, &earned_str, st.flow.focus_ratio, st.flow.break_ratio),
                 )
             }
             FlowState::Break => (
-                "PAUSE",
+                Strings::tag_break(lang),
                 "badge-break",
                 Strings::sub_break(lang).to_string(),
             ),
             FlowState::Idle => (
-                "KLAR",
+                Strings::tag_ready(lang),
                 "badge-idle",
                 Strings::sub_idle(lang).to_string(),
             ),
@@ -1722,10 +1762,16 @@ impl TetherUi {
         let is_running = st.flow.is_active();
         if is_running {
             self.mini_toggle_btn.set_icon_name("media-playback-pause-symbolic");
-            self.mini_toggle_btn.set_tooltip_text(Some("Pause flyt [Mellomrom]"));
+            self.mini_toggle_btn.set_tooltip_text(Some(match lang {
+                Language::Norwegian => "Pause flyt [Mellomrom]",
+                _ => "Pause flow [Space]",
+            }));
         } else {
             self.mini_toggle_btn.set_icon_name("media-playback-start-symbolic");
-            self.mini_toggle_btn.set_tooltip_text(Some("Start fokusøkt [Mellomrom]"));
+            self.mini_toggle_btn.set_tooltip_text(Some(match lang {
+                Language::Norwegian => "Start fokusøkt [Mellomrom]",
+                _ => "Start focus [Space]",
+            }));
         }
 
         // Buttons
@@ -1737,7 +1783,10 @@ impl TetherUi {
                 self.reset_btn.set_visible(false);
             }
             FlowState::MicroStart => {
-                self.main_action_btn.set_label("✕ Avbryt (Null skyldfølelse)");
+                self.main_action_btn.set_label(match lang {
+                    Language::Norwegian => "✕ Avbryt (Null skyldfølelse)",
+                    _ => "✕ Cancel (Zero Guilt)",
+                });
                 self.main_action_btn.set_css_classes(&["pill", "destructive-action"]);
                 self.micro_btn.set_visible(false);
                 self.reset_btn.set_visible(false);
@@ -1766,7 +1815,7 @@ impl TetherUi {
         }
 
         // Editor integration state & UI visibility
-        let editor = st.settings.editor_type.resolve();
+        let editor = st.settings.editor_type.resolve_context(st.anchor.as_ref());
         if editor == EditorType::None {
             self.editor_btn.set_visible(false);
             if st.anchor.is_none() {
@@ -1774,24 +1823,37 @@ impl TetherUi {
             } else {
                 self.anchor_group.set_visible(true);
             }
-            self.helper_text.set_label("Mellomrom = Start/pause flyt  •  ADHD Flowmodoro");
+            self.helper_text.set_label(match lang {
+                Language::Norwegian => "Mellomrom = Start/pause flyt  •  ADHD Flowmodoro",
+                _ => "Space = Start/pause flow  •  ADHD Flowmodoro",
+            });
         } else {
             self.editor_btn.set_visible(true);
             self.anchor_group.set_visible(true);
             let badge = editor.short_badge();
             let is_running = editor.is_running();
+            let conn_status = if is_running {
+                match lang { Language::Norwegian => "Tilkoblet 🟢", _ => "Connected 🟢" }
+            } else {
+                match lang { Language::Norwegian => "Frakoblet 🔌", _ => "Offline 🔌" }
+            };
             if is_running {
                 self.editor_btn.set_label(&format!("🟢 {}", badge));
-                self.editor_btn.set_tooltip_text(Some(&format!("{} (Tilkoblet 🟢)", editor.display_name())));
             } else {
                 self.editor_btn.set_label(&format!("🔌 {}", badge));
-                self.editor_btn.set_tooltip_text(Some(&format!("{} (Frakoblet 🔌)", editor.display_name())));
             }
-            self.helper_text.set_label(&format!("Mellomrom = Start/pause flyt  •  Integrert med {}", editor.display_name()));
+            self.editor_btn.set_tooltip_text(Some(&format!("{} ({})", editor.display_name(), conn_status)));
+            self.helper_text.set_label(&match lang {
+                Language::Norwegian => format!("Mellomrom = Start/pause flyt  •  Integrert med {}", editor.display_name()),
+                _ => format!("Space = Start/pause flow  •  Integrated with {}", editor.display_name()),
+            });
         }
 
         // Summary row
-        self.ratio_label.set_label(&format!("Forhold: {}m : {}m", st.flow.focus_ratio, st.flow.break_ratio));
+        self.ratio_label.set_label(&match lang {
+            Language::Norwegian => format!("Forhold: {}m : {}m", st.flow.focus_ratio, st.flow.break_ratio),
+            _ => format!("Ratio: {}m : {}m", st.flow.focus_ratio, st.flow.break_ratio),
+        });
         let total_mins = st.flow.total_focus_secs / 60;
         self.today_stats_label.set_label(&Strings::stats_focus_today(lang, total_mins));
 
@@ -1804,14 +1866,23 @@ impl TetherUi {
                 format!("  •  💡 \"{}\"", anchor.last_note)
             };
             self.anchor_row.set_subtitle(&format!("📄 {}:{}{}", anchor.relative_path, anchor.line, note));
-            self.anchor_resume_btn.set_label(&editor.resume_button_label());
+            self.anchor_resume_btn.set_label(&editor.resume_button_label(lang));
             self.anchor_resume_btn.set_visible(true);
         } else {
-            self.anchor_row.set_title("Ingen aktiv kontekst ennå");
+            self.anchor_row.set_title(match lang {
+                Language::Norwegian => "Ingen aktiv kontekst ennå",
+                _ => "No active context yet",
+            });
             if editor == EditorType::None {
-                self.anchor_row.set_subtitle("Ingen aktiv forankring");
+                self.anchor_row.set_subtitle(match lang {
+                    Language::Norwegian => "Ingen aktiv forankring",
+                    _ => "No active anchor",
+                });
             } else {
-                self.anchor_row.set_subtitle(&format!("Åpne en kodefil i {} for å forankre flyten", editor.display_name()));
+                self.anchor_row.set_subtitle(&match lang {
+                    Language::Norwegian => format!("Åpne en kodefil i {} for å forankre flyten", editor.display_name()),
+                    _ => format!("Open a code file in {} to anchor flow", editor.display_name()),
+                });
             }
             self.anchor_resume_btn.set_visible(false);
         }
