@@ -83,18 +83,22 @@ impl Flowmodoro {
 
     pub fn check_external_sync(&mut self) {
         if let Some(shared) = storage::load_shared_state() {
-            if shared.writer == "nvim" && shared.seq != self.last_synced_seq {
+            let is_new_seq = shared.seq != self.last_synced_seq;
+            let is_external = shared.writer == "nvim";
+            let is_startup_recovery = self.last_synced_seq == 0 && shared.state != "idle" && self.state == FlowState::Idle;
+
+            if (is_external && is_new_seq) || is_startup_recovery {
                 self.last_synced_seq = shared.seq;
                 self.seq = shared.seq;
                 self.focus_ratio = shared.focus_ratio.max(1);
                 self.break_ratio = shared.break_ratio.max(1);
 
+                let now = now_epoch();
                 match shared.state.as_str() {
                     "focus" => {
                         self.state = FlowState::Focus;
                         self.start_epoch = shared.start_epoch;
-                        let now = now_epoch();
-                        self.elapsed_focus_secs = if now >= self.start_epoch {
+                        self.elapsed_focus_secs = if self.start_epoch > 0 && now >= self.start_epoch {
                             now - self.start_epoch
                         } else {
                             shared.elapsed_focus_sec
@@ -105,8 +109,7 @@ impl Flowmodoro {
                         self.start_epoch = shared.start_epoch;
                         self.break_duration_sec = shared.break_duration_sec.max(shared.remaining_break_sec);
                         self.initial_break_secs = self.break_duration_sec;
-                        let now = now_epoch();
-                        let elapsed = if now >= self.start_epoch {
+                        let elapsed = if self.start_epoch > 0 && now >= self.start_epoch {
                             now - self.start_epoch
                         } else {
                             0
@@ -130,6 +133,7 @@ impl Flowmodoro {
         self.accumulator = Duration::ZERO;
         self.start_epoch = now_epoch();
         self.seq += 1;
+        self.last_synced_seq = self.seq;
         self.broadcast_state();
 
         notify("Fokusøkt startet 🚀", "Jobb uforstyrret så lenge du har god flyt!");
@@ -159,6 +163,7 @@ impl Flowmodoro {
         self.start_epoch = now_epoch();
         self.accumulator = Duration::ZERO;
         self.seq += 1;
+        self.last_synced_seq = self.seq;
         self.broadcast_state();
 
         notify(
@@ -186,6 +191,7 @@ impl Flowmodoro {
         self.break_duration_sec = 0;
         self.accumulator = Duration::ZERO;
         self.seq += 1;
+        self.last_synced_seq = self.seq;
         self.broadcast_state();
     }
 
@@ -200,28 +206,41 @@ impl Flowmodoro {
         self.accumulator += dt;
         while self.accumulator >= Duration::from_secs(1) {
             self.accumulator -= Duration::from_secs(1);
-
-            match self.state {
-                FlowState::Focus => {
-                    self.elapsed_focus_secs += 1;
-                    self.total_focus_secs += 1;
-                }
-                FlowState::Break => {
-                    if self.remaining_break_secs > 0 {
-                        self.remaining_break_secs -= 1;
-                    }
-                    if self.remaining_break_secs == 0 {
-                        self.state = FlowState::Idle;
-                        self.broadcast_state();
-                        notify(
-                            "Pausen er over! 🚀",
-                            "Hjernen er uthvilt og klar for neste fokusøkt.",
-                        );
-                        break;
-                    }
-                }
-                FlowState::Idle => break,
+            if self.state == FlowState::Focus {
+                self.total_focus_secs += 1;
             }
+        }
+
+        let now = now_epoch();
+        match self.state {
+            FlowState::Focus => {
+                if self.start_epoch > 0 && now >= self.start_epoch {
+                    self.elapsed_focus_secs = now - self.start_epoch;
+                }
+            }
+            FlowState::Break => {
+                if self.start_epoch > 0 && self.break_duration_sec > 0 {
+                    let elapsed = if now >= self.start_epoch {
+                        now - self.start_epoch
+                    } else {
+                        0
+                    };
+                    self.remaining_break_secs = self.break_duration_sec.saturating_sub(elapsed);
+                }
+                if self.remaining_break_secs == 0 {
+                    self.state = FlowState::Idle;
+                    self.start_epoch = 0;
+                    self.break_duration_sec = 0;
+                    self.seq += 1;
+                    self.last_synced_seq = self.seq;
+                    self.broadcast_state();
+                    notify(
+                        "Pausen er over! 🚀",
+                        "Hjernen er uthvilt og klar for neste fokusøkt.",
+                    );
+                }
+            }
+            FlowState::Idle => {}
         }
     }
 

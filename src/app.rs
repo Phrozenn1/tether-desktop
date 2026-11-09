@@ -88,6 +88,9 @@ impl TetherApp {
 
         let app = Self::default();
         app.apply_visuals(&cc.egui_ctx);
+        if app.settings.locked_monitor != "auto" && !app.settings.locked_monitor.is_empty() {
+            move_window_to_monitor(&app.settings.locked_monitor, app.is_mini_hud);
+        }
         app
     }
 
@@ -131,11 +134,11 @@ impl TetherApp {
         if self.is_mini_hud {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(260.0, 46.0)));
             #[cfg(target_os = "linux")]
-            hyprland_shrink();
+            hyprland_shrink(&self.settings.locked_monitor);
         } else {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(460.0, 580.0)));
             #[cfg(target_os = "linux")]
-            hyprland_expand();
+            hyprland_expand(&self.settings.locked_monitor);
         }
     }
 
@@ -154,76 +157,101 @@ impl TetherApp {
     }
 }
 
-fn hyprland_expand() {
+fn get_target_monitor(locked_monitor: &str) -> Option<storage::MonitorInfo> {
+    let monitors = storage::get_available_monitors();
+    if locked_monitor.is_empty() || locked_monitor == "auto" {
+        monitors.iter().find(|m| m.focused).cloned().or_else(|| monitors.first().cloned())
+    } else {
+        monitors.iter().find(|m| m.name == locked_monitor).cloned().or_else(|| {
+            monitors.iter().find(|m| m.focused).cloned().or_else(|| monitors.first().cloned())
+        })
+    }
+}
+
+pub fn move_window_to_monitor(locked_monitor: &str, is_mini_hud: bool) {
     #[cfg(target_os = "linux")]
     {
         if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
-            std::thread::spawn(|| {
+            let target_mon = get_target_monitor(locked_monitor);
+            if let Some(mon) = target_mon {
+                std::thread::spawn(move || {
+                    let (x, y) = if is_mini_hud {
+                        mon.mini_hud_pos()
+                    } else {
+                        mon.expanded_center_pos()
+                    };
+                    let move_cmd = format!(
+                        "hl.dsp.window.move({{ x = {}, y = {}, relative = false, window = \"class:tether\" }})",
+                        x, y
+                    );
+                    let _ = std::process::Command::new("hyprctl")
+                        .args(["dispatch", &move_cmd])
+                        .output();
+                });
+            }
+        }
+    }
+}
+
+fn hyprland_expand(locked_monitor: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            let target_mon = get_target_monitor(locked_monitor);
+            std::thread::spawn(move || {
                 let _ = std::process::Command::new("hyprctl")
                     .args([
                         "dispatch",
                         "hl.dsp.window.resize({ x = 460, y = 580, relative = false, window = \"class:tether\" })",
                     ])
                     .output();
-                let _ = std::process::Command::new("hyprctl")
-                    .args([
-                        "dispatch",
-                        "hl.dsp.window.center({ window = \"class:tether\" })",
-                    ])
-                    .output();
+                if let Some(mon) = target_mon {
+                    let (cx, cy) = mon.expanded_center_pos();
+                    let move_cmd = format!(
+                        "hl.dsp.window.move({{ x = {}, y = {}, relative = false, window = \"class:tether\" }})",
+                        cx, cy
+                    );
+                    let _ = std::process::Command::new("hyprctl")
+                        .args(["dispatch", &move_cmd])
+                        .output();
+                } else {
+                    let _ = std::process::Command::new("hyprctl")
+                        .args([
+                            "dispatch",
+                            "hl.dsp.window.center({ window = \"class:tether\" })",
+                        ])
+                        .output();
+                }
             });
         }
     }
 }
 
-fn hyprland_shrink() {
+fn hyprland_shrink(locked_monitor: &str) {
     #[cfg(target_os = "linux")]
     {
         if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
-            std::thread::spawn(|| {
-                let target_x = get_current_monitor_top_right_x();
+            let target_mon = get_target_monitor(locked_monitor);
+            std::thread::spawn(move || {
                 let _ = std::process::Command::new("hyprctl")
                     .args([
                         "dispatch",
                         "hl.dsp.window.resize({ x = 260, y = 46, relative = false, window = \"class:tether\" })",
                     ])
                     .output();
-                let move_cmd = format!(
-                    "hl.dsp.window.move({{ x = {}, y = 48, relative = false, window = \"class:tether\" }})",
-                    target_x
-                );
-                let _ = std::process::Command::new("hyprctl")
-                    .args(["dispatch", &move_cmd])
-                    .output();
+                if let Some(mon) = target_mon {
+                    let (x, y) = mon.mini_hud_pos();
+                    let move_cmd = format!(
+                        "hl.dsp.window.move({{ x = {}, y = {}, relative = false, window = \"class:tether\" }})",
+                        x, y
+                    );
+                    let _ = std::process::Command::new("hyprctl")
+                        .args(["dispatch", &move_cmd])
+                        .output();
+                }
             });
         }
     }
-}
-
-fn get_current_monitor_top_right_x() -> i32 {
-    let clients_out = std::process::Command::new("hyprctl").args(["clients", "-j"]).output();
-    let mon_id = if let Ok(out) = clients_out {
-        if let Ok(clients) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
-            clients.as_array().and_then(|arr| {
-                arr.iter().find(|c| c["class"] == "tether").and_then(|c| c["monitor"].as_i64())
-            }).unwrap_or(0)
-        } else { 0 }
-    } else { 0 };
-
-    if let Ok(out) = std::process::Command::new("hyprctl").args(["monitors", "-j"]).output() {
-        if let Ok(mons) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
-            if let Some(arr) = mons.as_array() {
-                if let Some(m) = arr.iter().find(|m| m["id"] == mon_id) {
-                    let x = m["x"].as_f64().unwrap_or(0.0);
-                    let w = m["width"].as_f64().unwrap_or(1920.0);
-                    let scale = m["scale"].as_f64().unwrap_or(1.0);
-                    let logical_w = w / scale;
-                    return (x + logical_w - 284.0) as i32;
-                }
-            }
-        }
-    }
-    1636
 }
 
 impl eframe::App for TetherApp {
@@ -1013,6 +1041,55 @@ impl TetherApp {
 
                     ui.add_space(8.0);
                     ui.checkbox(&mut self.settings.auto_launch_desktop, Strings::chk_auto_desktop(lang));
+                });
+
+            ui.add_space(10.0);
+
+            // Seksjon: Skjerm & Plassering (Monitor Lock)
+            egui::Frame::none()
+                .fill(self.theme.bg_panel)
+                .stroke(Stroke::new(1.0_f32, self.theme.border_subtle))
+                .rounding(10.0)
+                .inner_margin(12.0)
+                .show(ui, |ui| {
+                    ui.label(RichText::new(Strings::sec_monitor(lang)).strong().size(13.0).color(self.theme.accent));
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(Strings::hint_monitor(lang)).size(11.0).color(self.theme.text_muted));
+                    ui.add_space(8.0);
+
+                    let monitors = storage::get_available_monitors();
+                    let current_lock = self.settings.locked_monitor.clone();
+                    let current_label = if current_lock == "auto" || current_lock.is_empty() {
+                        Strings::opt_auto_monitor(lang).to_string()
+                    } else if let Some(m) = monitors.iter().find(|m| m.name == current_lock) {
+                        m.display_label()
+                    } else {
+                        current_lock.clone()
+                    };
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(Strings::lbl_locked_monitor(lang)).size(12.0));
+                        let mut selected_mon = self.settings.locked_monitor.clone();
+                        egui::ComboBox::from_id_salt("locked_monitor_combo")
+                            .selected_text(&current_label)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut selected_mon, "auto".to_string(), Strings::opt_auto_monitor(lang));
+                                for m in &monitors {
+                                    ui.selectable_value(&mut selected_mon, m.name.clone(), m.display_label());
+                                }
+                            });
+
+                        if selected_mon != self.settings.locked_monitor {
+                            self.settings.locked_monitor = selected_mon.clone();
+                            move_window_to_monitor(&selected_mon, self.is_mini_hud);
+                            let _ = storage::save_settings(&self.settings);
+                        }
+                    });
+
+                    ui.add_space(8.0);
+                    if ui.button(Strings::btn_move_now(lang)).clicked() {
+                        move_window_to_monitor(&self.settings.locked_monitor, self.is_mini_hud);
+                    }
                 });
 
             ui.add_space(10.0);

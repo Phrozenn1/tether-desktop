@@ -55,11 +55,14 @@ pub struct TetherSettings {
     pub notifications_enabled: bool,
     #[serde(default = "default_true")]
     pub remind_ramdump: bool,
+    #[serde(default = "default_locked_monitor")]
+    pub locked_monitor: String,
 }
 
 fn default_focus_ratio() -> u32 { 45 }
 fn default_break_ratio() -> u32 { 15 }
 fn default_true() -> bool { true }
+fn default_locked_monitor() -> String { "auto".to_string() }
 fn default_terminal_command() -> String { "xdg-terminal-exec nvim".to_string() }
 fn default_side_quests_file() -> String {
     get_data_dir().join("impulses.md").to_string_lossy().to_string()
@@ -77,6 +80,7 @@ impl Default for TetherSettings {
             terminal_command: default_terminal_command(),
             notifications_enabled: true,
             remind_ramdump: true,
+            locked_monitor: default_locked_monitor(),
         }
     }
 }
@@ -131,6 +135,107 @@ pub fn resolve_path(path_str: &str) -> PathBuf {
         }
     }
     PathBuf::from(trimmed)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorInfo {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub scale: f64,
+    pub focused: bool,
+}
+
+impl MonitorInfo {
+    pub fn logical_width(&self) -> f64 {
+        if self.scale > 0.0 {
+            self.width / self.scale
+        } else {
+            self.width
+        }
+    }
+
+    pub fn logical_height(&self) -> f64 {
+        if self.scale > 0.0 {
+            self.height / self.scale
+        } else {
+            self.height
+        }
+    }
+
+    pub fn mini_hud_pos(&self) -> (i32, i32) {
+        let x = self.x + self.logical_width() - 284.0;
+        let y = self.y + 48.0;
+        (x as i32, y as i32)
+    }
+
+    pub fn expanded_center_pos(&self) -> (i32, i32) {
+        let x = self.x + (self.logical_width() / 2.0) - 230.0;
+        let y = self.y + (self.logical_height() / 2.0) - 290.0;
+        (x as i32, y as i32)
+    }
+
+    pub fn display_label(&self) -> String {
+        let desc = if !self.description.is_empty() {
+            format!(" ({})", self.description)
+        } else {
+            String::new()
+        };
+        format!(
+            "{} — {}x{}{}",
+            self.name,
+            self.logical_width() as i32,
+            self.logical_height() as i32,
+            desc
+        )
+    }
+}
+
+pub fn get_available_monitors() -> Vec<MonitorInfo> {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            if let Ok(out) = std::process::Command::new("hyprctl")
+                .args(["monitors", "-j"])
+                .output()
+            {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                    if let Some(arr) = val.as_array() {
+                        return arr
+                            .iter()
+                            .filter_map(|m| {
+                                let name = m["name"].as_str()?.to_string();
+                                let description = m["description"].as_str().unwrap_or("").to_string();
+                                let id = m["id"].as_i64().unwrap_or(0);
+                                let x = m["x"].as_f64().unwrap_or(0.0);
+                                let y = m["y"].as_f64().unwrap_or(0.0);
+                                let width = m["width"].as_f64().unwrap_or(1920.0);
+                                let height = m["height"].as_f64().unwrap_or(1080.0);
+                                let scale = m["scale"].as_f64().unwrap_or(1.0);
+                                let focused = m["focused"].as_bool().unwrap_or(false);
+                                Some(MonitorInfo {
+                                    id,
+                                    name,
+                                    description,
+                                    x,
+                                    y,
+                                    width,
+                                    height,
+                                    scale,
+                                    focused,
+                                })
+                            })
+                            .collect();
+                    }
+                }
+            }
+        }
+    }
+    Vec::new()
 }
 
 pub fn load_settings() -> TetherSettings {

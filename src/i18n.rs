@@ -469,6 +469,41 @@ impl Strings {
         }
     }
 
+    pub fn sec_monitor(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Skjerm & Plassering (Flerskjermsoppsett)",
+            Language::English => "Display & Placement (Multi-monitor)",
+        }
+    }
+
+    pub fn lbl_locked_monitor(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Lås vindu til spesifikk skjerm:",
+            Language::English => "Lock window to specific display:",
+        }
+    }
+
+    pub fn opt_auto_monitor(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Auto (Følg aktiv/fokusert skjerm)",
+            Language::English => "Auto (Follow active/focused display)",
+        }
+    }
+
+    pub fn hint_monitor(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "Vinduet forblir forankret i øvre høyre hjørne på den valgte skjermen.",
+            Language::English => "The window remains anchored in the top-right corner of the selected display.",
+        }
+    }
+
+    pub fn btn_move_now(lang: Language) -> &'static str {
+        match lang {
+            Language::Norwegian => "🎯 Flytt til valgt skjerm nå",
+            Language::English => "🎯 Move to selected display now",
+        }
+    }
+
     pub fn sec_notifications(lang: Language) -> &'static str {
         match lang {
             Language::Norwegian => "Varsler & Påminnelser",
