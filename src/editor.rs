@@ -41,6 +41,18 @@ pub fn binary_exists(bin: &str) -> bool {
     false
 }
 
+pub fn binary_running(bin: &str) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(output) = std::process::Command::new("pgrep").args(["-x", bin]).output() {
+            if !output.stdout.is_empty() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 impl EditorType {
     pub fn id(&self) -> &'static str {
         match self {
@@ -89,11 +101,46 @@ impl EditorType {
         }
     }
 
-    /// Resolves `Auto` to the most relevant installed editor (or `None`).
-    pub fn resolve(&self) -> EditorType {
+    /// Resolves `Auto` to the most relevant installed editor (or `None`), factoring in anchor & running processes.
+    pub fn resolve_context(&self, anchor: Option<&ContextAnchor>) -> EditorType {
         match self {
             EditorType::Auto => {
-                // Priority: Neovim, VSCode, Neovide, Cursor, VSCodium, Helix
+                // 1. If anchor is available, prioritize the editor that created the anchor
+                if let Some(a) = anchor {
+                    let s = a.server_name.to_lowercase();
+                    if s.contains("vscode") || s.contains("code") {
+                        if binary_exists("code") {
+                            return EditorType::VSCode;
+                        }
+                    } else if s.contains("codium") {
+                        if binary_exists("codium") {
+                            return EditorType::VSCodium;
+                        }
+                    } else if s.contains("cursor") {
+                        if binary_exists("cursor") {
+                            return EditorType::Cursor;
+                        }
+                    } else if s.contains("neovide") {
+                        if binary_exists("neovide") {
+                            return EditorType::Neovide;
+                        }
+                    } else if s.contains("nvim") || s.contains("neovim") {
+                        if binary_exists("nvim") {
+                            return EditorType::Neovim;
+                        }
+                    } else if s.contains("helix") || s.contains("hx") {
+                        if binary_exists("hx") {
+                            return EditorType::Helix;
+                        }
+                    }
+                }
+
+                // 2. Check which editor is currently running
+                if let Some(running) = Self::detect_running_editor() {
+                    return running;
+                }
+
+                // 3. Fallback based on installed binaries
                 if binary_exists("nvim") {
                     EditorType::Neovim
                 } else if binary_exists("code") {
@@ -114,22 +161,35 @@ impl EditorType {
         }
     }
 
+    pub fn resolve(&self) -> EditorType {
+        self.resolve_context(None)
+    }
+
+    pub fn detect_running_editor() -> Option<EditorType> {
+        let code_running = binary_running("code");
+        let nvim_running = binary_running("nvim");
+        let neovide_running = binary_running("neovide");
+        let cursor_running = binary_running("cursor");
+
+        if code_running && !nvim_running && !neovide_running {
+            return Some(EditorType::VSCode);
+        }
+        if (nvim_running || neovide_running) && !code_running {
+            return if neovide_running { Some(EditorType::Neovide) } else { Some(EditorType::Neovim) };
+        }
+        if cursor_running && !code_running && !nvim_running {
+            return Some(EditorType::Cursor);
+        }
+        None
+    }
+
     pub fn is_running(&self) -> bool {
         let active = self.resolve();
         let bin = match active.binary_name() {
             Some(b) => b,
             None => return false,
         };
-
-        #[cfg(target_os = "linux")]
-        {
-            if let Ok(output) = std::process::Command::new("pgrep").args(["-x", bin]).output() {
-                if !output.stdout.is_empty() {
-                    return true;
-                }
-            }
-        }
-        false
+        binary_running(bin)
     }
 
     pub fn short_badge(&self) -> &'static str {
@@ -152,16 +212,28 @@ impl EditorType {
         }
     }
 
-    pub fn resume_button_label(&self) -> String {
-        match self.resolve() {
-            EditorType::Neovim => "Gjenoppta i Neovim 🚀".to_string(),
-            EditorType::Neovide => "Gjenoppta i Neovide 🚀".to_string(),
-            EditorType::VSCode => "Gjenoppta i VS Code 🚀".to_string(),
-            EditorType::VSCodium => "Gjenoppta i VSCodium 🚀".to_string(),
-            EditorType::Cursor => "Gjenoppta i Cursor 🚀".to_string(),
-            EditorType::Helix => "Gjenoppta i Helix 🚀".to_string(),
-            EditorType::Custom => "Gjenoppta i editor 🚀".to_string(),
-            EditorType::Auto | EditorType::None => "Gjenoppta fil 🚀".to_string(),
+    pub fn resume_button_label(&self, lang: crate::storage::Language) -> String {
+        let active = self.resolve();
+        let editor_name = match active {
+            EditorType::Neovim => "Neovim",
+            EditorType::Neovide => "Neovide",
+            EditorType::VSCode => "VS Code",
+            EditorType::VSCodium => "VSCodium",
+            EditorType::Cursor => "Cursor",
+            EditorType::Helix => "Helix",
+            EditorType::Custom => match lang {
+                crate::storage::Language::Norwegian => "editor",
+                _ => "editor",
+            },
+            EditorType::Auto | EditorType::None => match lang {
+                crate::storage::Language::Norwegian => "fil",
+                _ => "file",
+            },
+        };
+
+        match lang {
+            crate::storage::Language::Norwegian => format!("Gjenoppta i {} 🚀", editor_name),
+            _ => format!("Resume in {} 🚀", editor_name),
         }
     }
 
@@ -215,7 +287,7 @@ impl EditorType {
     }
 
     pub fn resume(&self, anchor: &ContextAnchor, terminal_cmd: &str) {
-        let active = self.resolve();
+        let active = self.resolve_context(Some(anchor));
         match active {
             EditorType::Neovim => {
                 crate::storage::resume_in_neovim(anchor, terminal_cmd);
