@@ -35,6 +35,54 @@ impl Default for SideQuestFormat {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MiniHudPlacement {
+    #[serde(rename = "floating")]
+    Floating,
+    #[serde(rename = "top_right")]
+    TopRight,
+    #[serde(rename = "bottom_right")]
+    BottomRight,
+    #[serde(rename = "top_left")]
+    TopLeft,
+    #[serde(rename = "bottom_left")]
+    BottomLeft,
+    #[serde(rename = "top_center")]
+    TopCenter,
+}
+
+impl Default for MiniHudPlacement {
+    fn default() -> Self {
+        MiniHudPlacement::Floating
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorMinimizeAction {
+    #[serde(rename = "tray")]
+    Tray,
+    #[serde(rename = "mini_hud")]
+    MiniHud,
+    #[serde(rename = "keep_open")]
+    KeepOpen,
+}
+
+impl Default for EditorMinimizeAction {
+    fn default() -> Self {
+        EditorMinimizeAction::Tray
+    }
+}
+
+impl EditorMinimizeAction {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            EditorMinimizeAction::Tray => "Minimer til system-tray (skjul vindu)",
+            EditorMinimizeAction::MiniHud => "Minimer til Mini-HUD (lite hjørnevindu)",
+            EditorMinimizeAction::KeepOpen => "Ikke minimer (behold fullt vindu)",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TetherSettings {
     #[serde(default)]
@@ -48,7 +96,13 @@ pub struct TetherSettings {
     #[serde(default)]
     pub side_quests_format: SideQuestFormat,
     #[serde(default)]
+    pub editor_type: crate::editor::EditorType,
+    #[serde(default)]
     pub auto_launch_desktop: bool,
+    #[serde(default)]
+    pub editor_minimize_action: Option<EditorMinimizeAction>,
+    #[serde(default)]
+    pub nvim_plugin_manager: crate::editor::NvimPluginManager,
     #[serde(default = "default_terminal_command")]
     pub terminal_command: String,
     #[serde(default = "default_true")]
@@ -59,6 +113,10 @@ pub struct TetherSettings {
     pub locked_monitor: String,
     #[serde(default)]
     pub custom_pos_mini: Option<(i32, i32)>,
+    #[serde(default)]
+    pub custom_pos_full: Option<(i32, i32)>,
+    #[serde(default)]
+    pub mini_hud_placement: MiniHudPlacement,
     #[serde(default = "default_soundscape")]
     pub soundscape: crate::audio::SoundscapeType,
     #[serde(default = "default_soundscape_volume")]
@@ -86,12 +144,17 @@ impl Default for TetherSettings {
             ratio_break: 15,
             side_quests_file: default_side_quests_file(),
             side_quests_format: SideQuestFormat::MarkdownCheckbox,
+            editor_type: crate::editor::EditorType::Auto,
             auto_launch_desktop: false,
+            editor_minimize_action: None,
+            nvim_plugin_manager: crate::editor::NvimPluginManager::Lazy,
             terminal_command: default_terminal_command(),
             notifications_enabled: true,
             remind_ramdump: true,
             locked_monitor: default_locked_monitor(),
             custom_pos_mini: None,
+            custom_pos_full: None,
+            mini_hud_placement: MiniHudPlacement::Floating,
             soundscape: default_soundscape(),
             soundscape_volume: default_soundscape_volume(),
             soundscape_auto_play: true,
@@ -250,6 +313,93 @@ pub fn get_available_monitors() -> Vec<MonitorInfo> {
         }
     }
     Vec::new()
+}
+
+pub fn get_target_monitor(locked_mon: &str) -> Option<MonitorInfo> {
+    let monitors = get_available_monitors();
+    if monitors.is_empty() {
+        return None;
+    }
+    if locked_mon == "auto" || locked_mon.is_empty() {
+        if let Some(focused) = monitors.iter().find(|m| m.focused) {
+            return Some(focused.clone());
+        }
+        return monitors.first().cloned();
+    }
+    if let Some(m) = monitors.iter().find(|m| m.name == locked_mon) {
+        return Some(m.clone());
+    }
+    monitors.first().cloned()
+}
+
+impl MiniHudPlacement {
+    pub fn calculate_pos(&self, settings: &TetherSettings) -> Option<(i32, i32)> {
+        match self {
+            MiniHudPlacement::Floating => {
+                if let Some(pos) = settings.custom_pos_mini {
+                    return Some(pos);
+                }
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + mon.logical_width() - 320.0 - 24.0;
+                let y = mon.y + 48.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::TopRight => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + mon.logical_width() - 320.0 - 24.0;
+                let y = mon.y + 48.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::BottomRight => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + mon.logical_width() - 320.0 - 24.0;
+                let y = mon.y + mon.logical_height() - 44.0 - 24.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::TopLeft => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + 24.0;
+                let y = mon.y + 48.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::BottomLeft => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + 24.0;
+                let y = mon.y + mon.logical_height() - 44.0 - 24.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::TopCenter => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + (mon.logical_width() - 320.0) / 2.0;
+                let y = mon.y + 48.0;
+                Some((x as i32, y as i32))
+            }
+        }
+    }
+}
+
+pub fn ensure_pinned(pinned: bool) {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(out) = std::process::Command::new("hyprctl").args(["clients", "-j"]).output() {
+            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                if let Some(arr) = val.as_array() {
+                    for client in arr {
+                        let class = client.get("class").and_then(|c| c.as_str()).unwrap_or("");
+                        if class == "org.tether.Tether" || class == "tether" {
+                            let is_currently_pinned = client.get("pinned").and_then(|p| p.as_bool()).unwrap_or(false);
+                            if is_currently_pinned != pinned {
+                                let _ = std::process::Command::new("hyprctl")
+                                    .args(["dispatch", "hl.dsp.window.pin({ window = \"class:org.tether.Tether\" })"])
+                                    .output();
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub fn load_settings() -> TetherSettings {
@@ -503,6 +653,105 @@ pub fn load_last_ramdump() -> Option<(String, String, String, String)> {
         }
     }
     None
+}
+
+pub fn get_tether_window_pos() -> Option<(i32, i32)> {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            if let Ok(out) = std::process::Command::new("hyprctl")
+                .args(["clients", "-j"])
+                .output()
+            {
+                if out.status.success() {
+                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                        if let Some(arr) = val.as_array() {
+                            for client in arr {
+                                let class = client.get("class").and_then(|c| c.as_str()).unwrap_or("");
+                                if class == "org.tether.Tether" || class == "tether" {
+                                    if let Some(at) = client.get("at").and_then(|a| a.as_array()) {
+                                        if at.len() == 2 {
+                                            if let (Some(x), Some(y)) = (at[0].as_i64(), at[1].as_i64()) {
+                                                return Some((x as i32, y as i32));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn move_window_to_pos(x: i32, y: i32) {
+    #[cfg(target_os = "linux")]
+    {
+        let move_cmd = format!(
+            "hl.dsp.window.move({{ x = {}, y = {}, window = \"class:org.tether.Tether\" }})",
+            x, y
+        );
+        let _ = std::process::Command::new("hyprctl")
+            .args(["dispatch", &move_cmd])
+            .output();
+    }
+}
+
+pub fn resize_window(w: i32, h: i32) {
+    #[cfg(target_os = "linux")]
+    {
+        let cmd = format!(
+            "hl.dsp.window.resize({{ x = {}, y = {}, relative = false, window = \"class:org.tether.Tether\" }})",
+            w, h
+        );
+        let _ = std::process::Command::new("hyprctl")
+            .args(["dispatch", &cmd])
+            .output();
+    }
+}
+
+pub fn clamp_full_window_pos(
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    locked_mon: &str,
+) -> (i32, i32) {
+    if let Some(mon) = get_target_monitor(locked_mon) {
+        let min_x = mon.x as i32 + 16;
+        let max_x = (mon.x + mon.logical_width()) as i32 - width - 16;
+        let min_y = mon.y as i32 + 36; // Keep clear of top bar
+        let max_y = (mon.y + mon.logical_height()) as i32 - height - 16;
+
+        let clamped_x = if max_x > min_x {
+            x.clamp(min_x, max_x)
+        } else {
+            (mon.x as i32) + ((mon.logical_width() as i32 - width) / 2)
+        };
+
+        let clamped_y = if max_y > min_y {
+            y.clamp(min_y, max_y)
+        } else {
+            (mon.y as i32) + ((mon.logical_height() as i32 - height) / 2)
+        };
+
+        (clamped_x, clamped_y)
+    } else {
+        (x.max(16), y.max(36))
+    }
+}
+
+pub fn get_centered_full_pos(width: i32, height: i32, locked_mon: &str) -> (i32, i32) {
+    if let Some(mon) = get_target_monitor(locked_mon) {
+        let x = (mon.x as i32) + ((mon.logical_width() as i32 - width) / 2);
+        let y = (mon.y as i32) + ((mon.logical_height() as i32 - height) / 2);
+        (x, y)
+    } else {
+        (400, 180)
+    }
 }
 
 // Neovim Deteksjon og Fokus

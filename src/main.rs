@@ -1,9 +1,12 @@
 mod audio;
+mod editor;
 mod flowmodoro;
 mod i18n;
 mod impulse;
 mod ramdump;
 mod storage;
+mod theme;
+mod tray;
 mod ui;
 
 use libadwaita::prelude::*;
