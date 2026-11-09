@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use tray_icon::{
     Icon, TrayIcon, TrayIconBuilder,
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -9,6 +10,7 @@ pub struct TetherTray {
     pub item_mini_hud: MenuItem,
     pub item_toggle_flow: MenuItem,
     pub item_quit: MenuItem,
+    last_status: RefCell<String>,
 }
 
 impl TetherTray {
@@ -33,9 +35,12 @@ impl TetherTray {
 
         let icon = create_anchor_icon(36, 170, 204); // Default Teal anchor
 
+        let initial_title = "Tether — ADHD Flow & Save-State";
         let tray = TrayIconBuilder::new()
+            .with_id("tether")
+            .with_title(initial_title)
+            .with_tooltip(initial_title)
             .with_menu(Box::new(menu))
-            .with_tooltip("Tether — ADHD Flow & Save-State")
             .with_icon(icon)
             .build()?;
 
@@ -45,12 +50,18 @@ impl TetherTray {
             item_mini_hud,
             item_toggle_flow,
             item_quit,
+            last_status: RefCell::new(initial_title.to_string()),
         })
     }
 
     pub fn update_status(&self, timer_text: &str, state_label: &str) {
-        let tooltip = format!("Tether: {} [{}]", timer_text, state_label);
-        let _ = self.tray.set_tooltip(Some(tooltip));
+        let text = format!("Tether: {} [{}]", timer_text, state_label);
+        let mut last = self.last_status.borrow_mut();
+        if *last != text {
+            let _ = self.tray.set_tooltip(Some(text.clone()));
+            self.tray.set_title(Some(text.clone()));
+            *last = text;
+        }
     }
 }
 
