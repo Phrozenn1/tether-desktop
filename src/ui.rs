@@ -97,10 +97,9 @@ pub struct TetherUi {
     // Impulses widgets
     pub impulse_entry: EntryRow,
     pub impulses_list_box: gtk4::ListBox,
-    pub imp_file_row: ActionRow,
-    pub imp_format_combo: ComboRow,
     pub set_file_row: ActionRow,
     pub set_format_combo: ComboRow,
+    pub set_cleanup_combo: ComboRow,
     pub editor_combo: ComboRow,
     pub nvim_mgr_combo: ComboRow,
     pub ext_status_row: ActionRow,
@@ -480,42 +479,6 @@ impl TetherUi {
         imp_input_group.add(&impulse_entry);
         imp_box.append(&imp_input_group);
 
-        // Impulses Storage Location Row
-        let imp_storage_group = PreferencesGroup::builder()
-            .title("Lagring og format")
-            .build();
-        let imp_file_row = ActionRow::builder()
-            .title("Fil for impulser")
-            .subtitle(&initial_settings.side_quests_file)
-            .build();
-        let imp_pick_btn = gtk4::Button::builder()
-            .label("Bla gjennom...")
-            .icon_name("document-open-symbolic")
-            .valign(gtk4::Align::Center)
-            .build();
-        imp_file_row.add_suffix(&imp_pick_btn);
-        imp_storage_group.add(&imp_file_row);
-
-        let imp_format_models = gtk4::StringList::new(&[
-            "Markdown Avkrysningsboks (- [ ])",
-            "Markdown Punktliste (-)",
-            "Todo.txt format",
-            "Strukturert JSON (.json)",
-        ]);
-        let imp_selected_format_idx = match initial_settings.side_quests_format {
-            SideQuestFormat::MarkdownCheckbox => 0,
-            SideQuestFormat::MarkdownBullet => 1,
-            SideQuestFormat::TodoTxt => 2,
-            SideQuestFormat::Json => 3,
-        };
-        let imp_format_combo = ComboRow::builder()
-            .title("Filformat for impulser")
-            .model(&imp_format_models)
-            .selected(imp_selected_format_idx)
-            .build();
-        imp_storage_group.add(&imp_format_combo);
-        imp_box.append(&imp_storage_group);
-
         let impulses_group = PreferencesGroup::builder()
             .title("Parkerte impulser")
             .description("Ting du kan undersøke i pausen eller etterpå")
@@ -640,12 +603,38 @@ impl TetherUi {
             "Todo.txt format",
             "Strukturert JSON (.json)",
         ]);
+        let set_selected_format_idx = match initial_settings.side_quests_format {
+            SideQuestFormat::MarkdownCheckbox => 0,
+            SideQuestFormat::MarkdownBullet => 1,
+            SideQuestFormat::TodoTxt => 2,
+            SideQuestFormat::Json => 3,
+        };
         let set_format_combo = ComboRow::builder()
             .title("Filformat")
             .model(&set_format_models)
-            .selected(imp_selected_format_idx)
+            .selected(set_selected_format_idx)
             .build();
         set_storage_group.add(&set_format_combo);
+
+        let set_cleanup_models = gtk4::StringList::new(&[
+            "1 time",
+            "1 dag",
+            "1 uke",
+            "Behold (aldri slette)",
+        ]);
+        let selected_cleanup_idx = match initial_settings.impulse_cleanup {
+            crate::storage::CompletedCleanup::OneHour => 0,
+            crate::storage::CompletedCleanup::OneDay => 1,
+            crate::storage::CompletedCleanup::OneWeek => 2,
+            crate::storage::CompletedCleanup::Keep => 3,
+        };
+        let set_cleanup_combo = ComboRow::builder()
+            .title("Fjerning av fullførte impulser")
+            .subtitle("Sletter automatisk avkryssede impulser etter valgt tid")
+            .model(&set_cleanup_models)
+            .selected(selected_cleanup_idx)
+            .build();
+        set_storage_group.add(&set_cleanup_combo);
         settings_page.add(&set_storage_group);
 
         // Group: Editor / Utviklingsmiljø (IDE)
@@ -936,10 +925,9 @@ impl TetherUi {
             last_dump_row,
             impulse_entry,
             impulses_list_box,
-            imp_file_row,
-            imp_format_combo: imp_format_combo.clone(),
             set_file_row,
             set_format_combo: set_format_combo.clone(),
+            set_cleanup_combo: set_cleanup_combo.clone(),
             editor_combo: editor_combo.clone(),
             nvim_mgr_combo: nvim_mgr_combo.clone(),
             ext_status_row: ext_status_row.clone(),
@@ -1031,14 +1019,6 @@ impl TetherUi {
             ui.mini_timer.add_controller(click);
         }
 
-        // Event: File Picker in Impulser
-        {
-            let ui_clone = ui.clone();
-            imp_pick_btn.connect_clicked(move |_| {
-                ui_clone.select_impulse_file();
-            });
-        }
-
         // Event: File Picker in Settings
         {
             let ui_clone = ui.clone();
@@ -1047,38 +1027,9 @@ impl TetherUi {
             });
         }
 
-        // Event: Format Combo in Impulser
-        {
-            let state_clone = state.clone();
-            let set_format_combo_clone = set_format_combo.clone();
-            let ui_clone = ui.clone();
-            imp_format_combo.connect_selected_notify(move |combo| {
-                let sel = combo.selected();
-                let fmt = match sel {
-                    0 => SideQuestFormat::MarkdownCheckbox,
-                    1 => SideQuestFormat::MarkdownBullet,
-                    2 => SideQuestFormat::TodoTxt,
-                    3 => SideQuestFormat::Json,
-                    _ => SideQuestFormat::MarkdownCheckbox,
-                };
-                {
-                    let mut st = state_clone.borrow_mut();
-                    if st.settings.side_quests_format != fmt {
-                        st.settings.side_quests_format = fmt;
-                        let _ = storage::save_settings(&st.settings);
-                    }
-                }
-                if set_format_combo_clone.selected() != sel {
-                    set_format_combo_clone.set_selected(sel);
-                }
-                ui_clone.refresh_impulses_list();
-            });
-        }
-
         // Event: Format Combo in Settings
         {
             let state_clone = state.clone();
-            let imp_format_combo_clone = imp_format_combo.clone();
             let ui_clone = ui.clone();
             set_format_combo.connect_selected_notify(move |combo| {
                 let sel = combo.selected();
@@ -1096,8 +1047,29 @@ impl TetherUi {
                         let _ = storage::save_settings(&st.settings);
                     }
                 }
-                if imp_format_combo_clone.selected() != sel {
-                    imp_format_combo_clone.set_selected(sel);
+                ui_clone.refresh_impulses_list();
+            });
+        }
+
+        // Event: Cleanup Combo in Settings
+        {
+            let state_clone = state.clone();
+            let ui_clone = ui.clone();
+            set_cleanup_combo.connect_selected_notify(move |combo| {
+                let sel = combo.selected();
+                let cleanup = match sel {
+                    0 => crate::storage::CompletedCleanup::OneHour,
+                    1 => crate::storage::CompletedCleanup::OneDay,
+                    2 => crate::storage::CompletedCleanup::OneWeek,
+                    3 => crate::storage::CompletedCleanup::Keep,
+                    _ => crate::storage::CompletedCleanup::OneDay,
+                };
+                {
+                    let mut st = state_clone.borrow_mut();
+                    if st.settings.impulse_cleanup != cleanup {
+                        st.settings.impulse_cleanup = cleanup;
+                        let _ = storage::save_settings(&st.settings);
+                    }
                 }
                 ui_clone.refresh_impulses_list();
             });
@@ -1653,7 +1625,6 @@ impl TetherUi {
                 }
                 let _ = storage::save_settings(&st.settings);
             }
-            self.imp_file_row.set_subtitle(&path_str);
             self.set_file_row.set_subtitle(&path_str);
             if let Some(fmt) = detected_format {
                 let idx = match fmt {
@@ -1662,7 +1633,6 @@ impl TetherUi {
                     SideQuestFormat::TodoTxt => 2,
                     SideQuestFormat::Json => 3,
                 };
-                self.imp_format_combo.set_selected(idx);
                 self.set_format_combo.set_selected(idx);
             }
             self.refresh_impulses_list();
@@ -2038,6 +2008,7 @@ impl TetherUi {
             let old_state = st.flow.state;
             st.flow.toggle();
             let new_state = st.flow.state;
+            st.previous_state = new_state;
             st.audio.handle_flow_state_transition(old_state, new_state);
             (old_state, new_state)
         };
@@ -2055,6 +2026,7 @@ impl TetherUi {
         st.flow.start_micro_start();
         st.last_recorded_focus_mins = 0;
         let new_state = st.flow.state;
+        st.previous_state = new_state;
         st.audio.handle_flow_state_transition(old_state, new_state);
     }
 
@@ -2062,6 +2034,7 @@ impl TetherUi {
         let mut st = self.state.borrow_mut();
         st.flow.reset();
         st.last_recorded_focus_mins = 0;
+        st.previous_state = FlowState::Idle;
     }
 
     pub fn toggle_audio(&self) {
@@ -2108,7 +2081,7 @@ impl TetherUi {
 
     pub fn refresh_impulses_list(&self) {
         let st = self.state.borrow();
-        let items = storage::load_impulses_with_settings(&st.settings);
+        let items = storage::load_structured_impulses_with_cleanup(&st.settings);
 
         while let Some(child) = self.impulses_list_box.first_child() {
             self.impulses_list_box.remove(&child);
@@ -2121,10 +2094,56 @@ impl TetherUi {
                 .build();
             self.impulses_list_box.append(&row);
         } else {
-            for item in items.iter().rev().take(15) {
-                let row = ActionRow::builder()
-                    .title(item)
+            for (original_idx, item) in items.iter().enumerate().rev().take(30) {
+                let row = ActionRow::builder().build();
+                let check_btn = gtk4::CheckButton::builder()
+                    .active(item.done)
+                    .valign(gtk4::Align::Center)
                     .build();
+
+                if item.done {
+                    let escaped = glib::markup_escape_text(&item.text);
+                    row.set_title(&format!("<span strikethrough=\"true\" alpha=\"60%\">{}</span>", escaped));
+                    if let Some(comp) = &item.completed_at {
+                        row.set_subtitle(&format!("Fullført {}", comp));
+                    } else {
+                        row.set_subtitle("Fullført ✓");
+                    }
+                } else {
+                    row.set_title(&glib::markup_escape_text(&item.text));
+                    if let Some(created) = &item.created_at {
+                        row.set_subtitle(&format!("Parkert {}", created));
+                    }
+                }
+
+                let state_clone = self.state.clone();
+                let target_idx = original_idx;
+                let row_weak = row.downgrade();
+                let text = item.text.clone();
+                let created_at = item.created_at.clone();
+
+                check_btn.connect_toggled(move |btn| {
+                    let is_done = btn.is_active();
+                    let settings = state_clone.borrow().settings.clone();
+                    let _ = storage::toggle_impulse_done(&settings, target_idx, is_done);
+                    if let Some(r) = row_weak.upgrade() {
+                        if is_done {
+                            let escaped = glib::markup_escape_text(&text);
+                            r.set_title(&format!("<span strikethrough=\"true\" alpha=\"60%\">{}</span>", escaped));
+                            let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+                            r.set_subtitle(&format!("Fullført {}", now_str));
+                        } else {
+                            r.set_title(&glib::markup_escape_text(&text));
+                            if let Some(created) = &created_at {
+                                r.set_subtitle(&format!("Parkert {}", created));
+                            } else {
+                                r.set_subtitle("");
+                            }
+                        }
+                    }
+                });
+
+                row.add_prefix(&check_btn);
                 self.impulses_list_box.append(&row);
             }
         }

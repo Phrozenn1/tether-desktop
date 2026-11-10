@@ -105,6 +105,40 @@ impl Default for MiniHudPlacement {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CompletedCleanup {
+    #[serde(rename = "1_hour", alias = "one_hour")]
+    OneHour,
+    #[default]
+    #[serde(rename = "1_day", alias = "one_day")]
+    OneDay,
+    #[serde(rename = "1_week", alias = "one_week")]
+    OneWeek,
+    #[serde(rename = "keep", alias = "behold")]
+    Keep,
+}
+
+impl CompletedCleanup {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            CompletedCleanup::OneHour => "1 time",
+            CompletedCleanup::OneDay => "1 dag",
+            CompletedCleanup::OneWeek => "1 uke",
+            CompletedCleanup::Keep => "Behold (aldri slette)",
+        }
+    }
+
+    pub fn max_age_duration(&self) -> Option<chrono::Duration> {
+        match self {
+            CompletedCleanup::OneHour => Some(chrono::Duration::hours(1)),
+            CompletedCleanup::OneDay => Some(chrono::Duration::days(1)),
+            CompletedCleanup::OneWeek => Some(chrono::Duration::weeks(1)),
+            CompletedCleanup::Keep => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EditorMinimizeAction {
     #[serde(rename = "tray")]
@@ -143,6 +177,8 @@ pub struct TetherSettings {
     pub side_quests_file: String,
     #[serde(default)]
     pub side_quests_format: SideQuestFormat,
+    #[serde(default = "default_impulse_cleanup")]
+    pub impulse_cleanup: CompletedCleanup,
     #[serde(default)]
     pub editor_type: crate::editor::EditorType,
     #[serde(default)]
@@ -177,6 +213,7 @@ pub struct TetherSettings {
 
 fn default_focus_ratio() -> u32 { 45 }
 fn default_break_ratio() -> u32 { 15 }
+fn default_impulse_cleanup() -> CompletedCleanup { CompletedCleanup::OneDay }
 fn default_true() -> bool { true }
 fn default_locked_monitor() -> String { "auto".to_string() }
 fn default_terminal_command() -> String { "xdg-terminal-exec nvim".to_string() }
@@ -194,6 +231,7 @@ impl Default for TetherSettings {
             ratio_break: 15,
             side_quests_file: default_side_quests_file(),
             side_quests_format: SideQuestFormat::MarkdownCheckbox,
+            impulse_cleanup: CompletedCleanup::OneDay,
             editor_type: crate::editor::EditorType::Auto,
             auto_launch_desktop: false,
             editor_minimize_action: None,
@@ -519,12 +557,6 @@ pub fn load_shared_state() -> Option<SharedFlowState> {
 }
 
 // Side-Quests med format-støtte
-#[derive(Serialize, Deserialize)]
-struct JsonTask {
-    timestamp: String,
-    text: String,
-    done: bool,
-}
 
 pub fn pick_impulse_file() -> Option<PathBuf> {
     // 1. System file dialog via rfd
@@ -563,39 +595,169 @@ pub fn pick_impulse_file() -> Option<PathBuf> {
     None
 }
 
-pub fn append_impulse_with_settings(settings: &TetherSettings, text: &str) -> Result<(), std::io::Error> {
-    let file_path = resolve_path(&settings.side_quests_file);
-    if let Some(parent) = file_path.parent() {
-        create_dir_all(parent)?;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonTask {
+    pub timestamp: String,
+    pub text: String,
+    pub done: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImpulseItem {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub done: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+}
+
+pub fn parse_timestamp(s: &str) -> Option<chrono::DateTime<chrono::Local>> {
+    let s = s.trim();
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return dt.and_local_timezone(chrono::Local).single();
+    }
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M") {
+        return dt.and_local_timezone(chrono::Local).single();
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        if let Some(dt) = d.and_hms_opt(23, 59, 59) {
+            return dt.and_local_timezone(chrono::Local).single();
+        }
+    }
+    None
+}
+
+pub fn parse_markdown_checkbox_line(line: &str) -> ImpulseItem {
+    let trimmed = line.trim();
+    let (done, rest) = if let Some(r) = trimmed.strip_prefix("- [ ]")
+        .or_else(|| trimmed.strip_prefix("* [ ]"))
+        .or_else(|| trimmed.strip_prefix("+ [ ]")) {
+        (false, r.trim())
+    } else if let Some(r) = trimmed.strip_prefix("- [x]")
+        .or_else(|| trimmed.strip_prefix("- [X]"))
+        .or_else(|| trimmed.strip_prefix("* [x]"))
+        .or_else(|| trimmed.strip_prefix("* [X]"))
+        .or_else(|| trimmed.strip_prefix("+ [x]"))
+        .or_else(|| trimmed.strip_prefix("+ [X]")) {
+        (true, r.trim())
+    } else if let Some(r) = trimmed.strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* ")) {
+        (false, r.trim())
+    } else {
+        (false, trimmed)
+    };
+
+    let mut content = rest.to_string();
+    let mut completed_at = None;
+
+    if let Some(done_pos) = content.rfind("[done:") {
+        if let Some(end_bracket) = content[done_pos..].find(']') {
+            let actual_end = done_pos + end_bracket;
+            let time_part = content[done_pos + 6..actual_end].trim();
+            completed_at = Some(time_part.to_string());
+            let before = content[..done_pos].trim_end();
+            let after = content[actual_end + 1..].trim_start();
+            content = if after.is_empty() {
+                before.to_string()
+            } else {
+                format!("{} {}", before, after)
+            };
+        }
     }
 
-    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+    let mut created_at = None;
+    if content.starts_with('[') {
+        if let Some(bracket_end) = content.find(']') {
+            let candidate = content[1..bracket_end].trim();
+            if candidate.chars().any(|c| c.is_ascii_digit()) && candidate.contains('-') {
+                created_at = Some(candidate.to_string());
+                content = content[bracket_end + 1..].trim().to_string();
+            }
+        }
+    }
 
-    match settings.side_quests_format {
+    ImpulseItem {
+        text: content,
+        created_at,
+        done,
+        completed_at,
+    }
+}
+
+pub fn parse_todotxt_line(line: &str) -> ImpulseItem {
+    let trimmed = line.trim();
+    if let Some(rest) = trimmed.strip_prefix("x ") {
+        let parts: Vec<&str> = rest.split_whitespace().collect();
+        let (completed_at, text_part) = if !parts.is_empty() && parts[0].contains('-') {
+            (Some(parts[0].to_string()), parts[1..].join(" "))
+        } else {
+            (None, rest.to_string())
+        };
+        ImpulseItem {
+            text: text_part,
+            created_at: None,
+            done: true,
+            completed_at,
+        }
+    } else {
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        let mut idx = 0;
+        if idx < parts.len() && parts[idx].starts_with('(') && parts[idx].ends_with(')') {
+            idx += 1;
+        }
+        let created_at = if idx < parts.len() && parts[idx].contains('-') {
+            let d = parts[idx].to_string();
+            idx += 1;
+            Some(d)
+        } else {
+            None
+        };
+        let text = parts[idx..].join(" ");
+        ImpulseItem {
+            text: if text.is_empty() { trimmed.to_string() } else { text },
+            created_at,
+            done: false,
+            completed_at: None,
+        }
+    }
+}
+
+pub fn format_impulse_line(item: &ImpulseItem, format: SideQuestFormat) -> String {
+    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+    let created = item.created_at.as_deref().unwrap_or(&now_str);
+    match format {
         SideQuestFormat::MarkdownCheckbox => {
-            let mut file = OpenOptions::new().create(true).append(true).open(file_path)?;
-            writeln!(file, "- [ ] [{}] {}", timestamp, text)?;
+            if item.done {
+                let completed = item.completed_at.as_deref().unwrap_or(&now_str);
+                format!("- [x] [{}] {} [done:{}]", created, item.text, completed)
+            } else {
+                format!("- [ ] [{}] {}", created, item.text)
+            }
         }
         SideQuestFormat::MarkdownBullet => {
-            let mut file = OpenOptions::new().create(true).append(true).open(file_path)?;
-            writeln!(file, "- [{}] {}", timestamp, text)?;
+            if item.done {
+                let completed = item.completed_at.as_deref().unwrap_or(&now_str);
+                format!("- [x] [{}] {} [done:{}]", created, item.text, completed)
+            } else {
+                format!("- [{}] {}", created, item.text)
+            }
         }
         SideQuestFormat::TodoTxt => {
-            let mut file = OpenOptions::new().create(true).append(true).open(file_path)?;
-            let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-            writeln!(file, "(B) {} {} +sidequest", date, text)?;
+            let created_date = if created.len() >= 10 { &created[..10] } else { &now_str[..10] };
+            if item.done {
+                let comp_str = item.completed_at.as_deref().unwrap_or(&now_str);
+                let comp_date = if comp_str.len() >= 10 { &comp_str[..10] } else { &now_str[..10] };
+                format!("x {} (B) {} {} +sidequest", comp_date, created_date, item.text)
+            } else {
+                format!("(B) {} {} +sidequest", created_date, item.text)
+            }
         }
-        SideQuestFormat::Json => {
-            let mut list = load_json_tasks(&file_path);
-            list.push(JsonTask {
-                timestamp,
-                text: text.to_string(),
-                done: false,
-            });
-            save_json_tasks(&file_path, &list)?;
-        }
+        SideQuestFormat::Json => String::new(),
     }
-    Ok(())
 }
 
 fn load_json_tasks(path: &PathBuf) -> Vec<JsonTask> {
@@ -614,27 +776,41 @@ fn save_json_tasks(path: &PathBuf, tasks: &[JsonTask]) -> Result<(), std::io::Er
     Ok(())
 }
 
-pub fn load_impulses_with_settings(settings: &TetherSettings) -> Vec<String> {
+pub fn load_raw_structured_impulses(settings: &TetherSettings) -> Vec<ImpulseItem> {
     let file_path = resolve_path(&settings.side_quests_file);
     if settings.side_quests_format == SideQuestFormat::Json {
         let tasks = load_json_tasks(&file_path);
-        return tasks.into_iter().filter(|t| !t.done).map(|t| format!("- [{}] {}", t.timestamp, t.text)).collect();
+        return tasks
+            .into_iter()
+            .map(|t| ImpulseItem {
+                text: t.text,
+                created_at: Some(t.timestamp),
+                done: t.done,
+                completed_at: t.completed_at,
+            })
+            .collect();
     }
 
-    if let Ok(mut file) = std::fs::File::open(file_path) {
+    if let Ok(mut file) = std::fs::File::open(&file_path) {
         let mut content = String::new();
         if file.read_to_string(&mut content).is_ok() {
             return content
                 .lines()
                 .filter(|l| !l.trim().is_empty())
-                .map(|s| s.to_string())
+                .map(|line| match settings.side_quests_format {
+                    SideQuestFormat::MarkdownCheckbox | SideQuestFormat::MarkdownBullet => {
+                        parse_markdown_checkbox_line(line)
+                    }
+                    SideQuestFormat::TodoTxt => parse_todotxt_line(line),
+                    SideQuestFormat::Json => unreachable!(),
+                })
                 .collect();
         }
     }
     Vec::new()
 }
 
-pub fn save_all_impulses_with_settings(settings: &TetherSettings, items: &[String]) -> Result<(), std::io::Error> {
+pub fn save_structured_impulses(settings: &TetherSettings, items: &[ImpulseItem]) -> Result<(), std::io::Error> {
     let file_path = resolve_path(&settings.side_quests_file);
     if let Some(parent) = file_path.parent() {
         create_dir_all(parent)?;
@@ -643,20 +819,112 @@ pub fn save_all_impulses_with_settings(settings: &TetherSettings, items: &[Strin
     if settings.side_quests_format == SideQuestFormat::Json {
         let tasks: Vec<JsonTask> = items
             .iter()
-            .map(|s| JsonTask {
-                timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
-                text: s.clone(),
-                done: false,
+            .map(|item| JsonTask {
+                timestamp: item
+                    .created_at
+                    .clone()
+                    .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
+                text: item.text.clone(),
+                done: item.done,
+                completed_at: item.completed_at.clone(),
             })
             .collect();
         return save_json_tasks(&file_path, &tasks);
     }
 
-    let mut file = std::fs::File::create(file_path)?;
+    let mut file = std::fs::File::create(&file_path)?;
     for item in items {
-        writeln!(file, "{}", item)?;
+        writeln!(file, "{}", format_impulse_line(item, settings.side_quests_format))?;
     }
     Ok(())
+}
+
+pub fn load_structured_impulses_with_cleanup(settings: &TetherSettings) -> Vec<ImpulseItem> {
+    let mut items = load_raw_structured_impulses(settings);
+    let now = chrono::Local::now();
+    let max_age = settings.impulse_cleanup.max_age_duration();
+
+    if let Some(max_age) = max_age {
+        let initial_len = items.len();
+        items.retain(|item| {
+            if !item.done {
+                return true;
+            }
+            if let Some(comp_str) = &item.completed_at {
+                if let Some(dt) = parse_timestamp(comp_str) {
+                    let age = now.signed_duration_since(dt);
+                    if age >= max_age {
+                        return false;
+                    }
+                }
+            } else if let Some(created_str) = &item.created_at {
+                if let Some(dt) = parse_timestamp(created_str) {
+                    let age = now.signed_duration_since(dt);
+                    if age >= max_age {
+                        return false;
+                    }
+                }
+            }
+            true
+        });
+
+        if items.len() != initial_len {
+            let _ = save_structured_impulses(settings, &items);
+        }
+    }
+
+    items
+}
+
+pub fn toggle_impulse_done(settings: &TetherSettings, index: usize, done: bool) -> Result<(), std::io::Error> {
+    let mut items = load_raw_structured_impulses(settings);
+    if index < items.len() {
+        items[index].done = done;
+        if done {
+            items[index].completed_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string());
+        } else {
+            items[index].completed_at = None;
+        }
+        save_structured_impulses(settings, &items)?;
+    }
+    Ok(())
+}
+
+pub fn append_impulse_with_settings(settings: &TetherSettings, text: &str) -> Result<(), std::io::Error> {
+    let mut items = load_raw_structured_impulses(settings);
+    items.push(ImpulseItem {
+        text: text.to_string(),
+        created_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
+        done: false,
+        completed_at: None,
+    });
+    save_structured_impulses(settings, &items)
+}
+
+pub fn load_impulses_with_settings(settings: &TetherSettings) -> Vec<String> {
+    load_structured_impulses_with_cleanup(settings)
+        .into_iter()
+        .map(|item| format_impulse_line(&item, settings.side_quests_format))
+        .collect()
+}
+
+pub fn save_all_impulses_with_settings(settings: &TetherSettings, items: &[String]) -> Result<(), std::io::Error> {
+    let structured: Vec<ImpulseItem> = items
+        .iter()
+        .map(|s| match settings.side_quests_format {
+            SideQuestFormat::MarkdownCheckbox | SideQuestFormat::MarkdownBullet => {
+                parse_markdown_checkbox_line(s)
+            }
+            SideQuestFormat::TodoTxt => parse_todotxt_line(s),
+            SideQuestFormat::Json => ImpulseItem {
+                text: s.clone(),
+                created_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
+                done: false,
+                completed_at: None,
+            },
+        })
+        .collect();
+    save_structured_impulses(settings, &structured)
 }
 
 // Bakoverkompatibilitet
@@ -1128,5 +1396,86 @@ mod tests {
         assert_eq!(json, "\"bottom_center\"");
         let deserialized: MiniHudPlacement = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized, MiniHudPlacement::BottomCenter);
+    }
+
+    #[test]
+    fn test_completed_cleanup_serde() {
+        for (cleanup, expected_json) in [
+            (CompletedCleanup::OneHour, "\"1_hour\""),
+            (CompletedCleanup::OneDay, "\"1_day\""),
+            (CompletedCleanup::OneWeek, "\"1_week\""),
+            (CompletedCleanup::Keep, "\"keep\""),
+        ] {
+            let json = serde_json::to_string(&cleanup).expect("serialize");
+            assert_eq!(json, expected_json);
+            let des: CompletedCleanup = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(des, cleanup);
+        }
+    }
+
+    #[test]
+    fn test_markdown_checkbox_parsing_and_formatting() {
+        let line_active = "- [ ] [2026-11-10 12:00] Kjøpe kaffe";
+        let item_active = parse_markdown_checkbox_line(line_active);
+        assert_eq!(item_active.text, "Kjøpe kaffe");
+        assert_eq!(item_active.created_at, Some("2026-11-10 12:00".to_string()));
+        assert!(!item_active.done);
+        assert_eq!(item_active.completed_at, None);
+
+        let formatted_active = format_impulse_line(&item_active, SideQuestFormat::MarkdownCheckbox);
+        assert_eq!(formatted_active, line_active);
+
+        let line_done = "- [x] [2026-11-10 12:00] Kjøpe kaffe [done:2026-11-10 12:45]";
+        let item_done = parse_markdown_checkbox_line(line_done);
+        assert_eq!(item_done.text, "Kjøpe kaffe");
+        assert_eq!(item_done.created_at, Some("2026-11-10 12:00".to_string()));
+        assert!(item_done.done);
+        assert_eq!(item_done.completed_at, Some("2026-11-10 12:45".to_string()));
+
+        let formatted_done = format_impulse_line(&item_done, SideQuestFormat::MarkdownCheckbox);
+        assert_eq!(formatted_done, line_done);
+    }
+
+    #[test]
+    fn test_completed_cleanup_filtering() {
+        let now = chrono::Local::now();
+        let item_active = ImpulseItem {
+            text: "Aktiv oppgave".to_string(),
+            created_at: Some(now.format("%Y-%m-%d %H:%M").to_string()),
+            done: false,
+            completed_at: None,
+        };
+        let item_done_recent = ImpulseItem {
+            text: "Nylig fullført (10m siden)".to_string(),
+            created_at: Some((now - chrono::Duration::minutes(20)).format("%Y-%m-%d %H:%M").to_string()),
+            done: true,
+            completed_at: Some((now - chrono::Duration::minutes(10)).format("%Y-%m-%d %H:%M").to_string()),
+        };
+        let item_done_old = ImpulseItem {
+            text: "Gammel fullført (2 timer siden)".to_string(),
+            created_at: Some((now - chrono::Duration::hours(3)).format("%Y-%m-%d %H:%M").to_string()),
+            done: true,
+            completed_at: Some((now - chrono::Duration::hours(2)).format("%Y-%m-%d %H:%M").to_string()),
+        };
+
+        let items = vec![item_active.clone(), item_done_recent.clone(), item_done_old.clone()];
+
+        // Filter with OneHour: old should be pruned, recent and active kept
+        let max_age_1h = CompletedCleanup::OneHour.max_age_duration().unwrap();
+        let filtered_1h: Vec<_> = items.clone().into_iter().filter(|item| {
+            if !item.done { return true; }
+            if let Some(comp) = &item.completed_at {
+                if let Some(dt) = parse_timestamp(comp) {
+                    return now.signed_duration_since(dt) < max_age_1h;
+                }
+            }
+            true
+        }).collect();
+        assert_eq!(filtered_1h.len(), 2);
+        assert_eq!(filtered_1h[0].text, "Aktiv oppgave");
+        assert_eq!(filtered_1h[1].text, "Nylig fullført (10m siden)");
+
+        // Filter with Keep: nothing pruned
+        assert!(CompletedCleanup::Keep.max_age_duration().is_none());
     }
 }
