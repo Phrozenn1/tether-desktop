@@ -468,8 +468,11 @@ impl TetherUi {
                 } else {
                     let row_w = flow_sound_row_clone.width();
                     let row_h = flow_sound_row_clone.height();
-                    let pop_w = 260;
-                    let rect = gtk4::gdk::Rectangle::new(row_w - pop_w, row_h, pop_w, 1);
+                    let (_, nat) = flow_vol_popover_clone.preferred_size();
+                    let pop_w = nat.width().max(300);
+                    // Shift left to align flush with card edge, and down to add breathing room
+                    let offset_y = 8;
+                    let rect = gtk4::gdk::Rectangle::new(row_w - pop_w, row_h + offset_y, pop_w, 1);
                     flow_vol_popover_clone.set_pointing_to(Some(&rect));
                     flow_vol_popover_clone.popup();
                 }
