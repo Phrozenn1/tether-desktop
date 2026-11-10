@@ -1,7 +1,7 @@
 # Tether: Scientific Rationale & Neurodivergent Research Foundation 🧠🔬
 
 > **Document Version:** 1.2.0  
-> **Author:** Kim Bech <kim@phrozenn.no> & The Tether Project  
+> **Author:** Kim Bech <kimbech@gmail.com> & The Tether Project  
 > **Target Audience:** Developers, Cognitive Scientists, Neurodivergent Individuals (ADHD, Autism, Dyslexia, AuDHD), and Productivity Researchers  
 
 ---
