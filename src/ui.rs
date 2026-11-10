@@ -78,8 +78,12 @@ pub struct TetherUi {
     // Flow soundscape widgets
     pub flow_sound_dropdown: gtk4::DropDown,
     pub flow_audio_btn: gtk4::Button,
+    pub flow_vol_btn: gtk4::MenuButton,
+    pub flow_vol_scale: gtk4::Scale,
+    pub flow_vol_label: gtk4::Label,
     pub flow_sound_row: ActionRow,
     pub sound_combo: ComboRow,
+    pub set_vol_scale: gtk4::Scale,
 
     // Context anchor widgets
     pub anchor_group: PreferencesGroup,
@@ -348,13 +352,119 @@ impl TetherUi {
         flow_sound_dropdown.set_valign(gtk4::Align::Center);
         flow_sound_row.add_suffix(&flow_sound_dropdown);
 
-        let flow_audio_btn = gtk4::Button::builder()
-            .label("Spill av")
-            .icon_name("media-playback-start-symbolic")
+        // Volume Popover MenuButton
+        let initial_vol_pct = (initial_settings.soundscape_volume * 100.0).clamp(0.0, 100.0) as f64;
+        let flow_vol_btn = gtk4::MenuButton::builder()
+            .icon_name(Self::volume_icon_name(initial_vol_pct))
+            .direction(gtk4::ArrowType::Left)
+            .tooltip_text("Lydstyrke (relativt til musikk/system)")
             .valign(gtk4::Align::Center)
-            .css_classes(["pill"])
+            .css_classes(["flat", "circular"])
+            .build();
+
+        let flow_vol_popover = gtk4::Popover::builder()
+            .autohide(true)
+            .position(gtk4::PositionType::Left)
+            .build();
+
+        let popover_box = gtk4::Box::builder()
+            .orientation(gtk4::Orientation::Vertical)
+            .spacing(8)
+            .margin_top(10)
+            .margin_bottom(10)
+            .margin_start(12)
+            .margin_end(12)
+            .build();
+
+        let popover_header = gtk4::Box::builder()
+            .orientation(gtk4::Orientation::Horizontal)
+            .spacing(10)
+            .build();
+
+        let vol_title = gtk4::Label::builder()
+            .label("Lydstyrke")
+            .css_classes(["heading"])
+            .halign(gtk4::Align::Start)
+            .hexpand(true)
+            .build();
+
+        let flow_vol_label = gtk4::Label::builder()
+            .label(&format!("{:.0}%", initial_vol_pct))
+            .css_classes(["numeric", "caption"])
+            .halign(gtk4::Align::End)
+            .build();
+
+        popover_header.append(&vol_title);
+        popover_header.append(&flow_vol_label);
+        popover_box.append(&popover_header);
+
+        let slider_box = gtk4::Box::builder()
+            .orientation(gtk4::Orientation::Horizontal)
+            .spacing(6)
+            .build();
+
+        let icon_low = gtk4::Image::from_icon_name("audio-volume-low-symbolic");
+        icon_low.set_opacity(0.6);
+        let icon_high = gtk4::Image::from_icon_name("audio-volume-high-symbolic");
+        icon_high.set_opacity(0.6);
+
+        let flow_vol_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 0.0, 100.0, 1.0);
+        flow_vol_scale.set_value(initial_vol_pct);
+        flow_vol_scale.set_draw_value(false);
+        flow_vol_scale.set_width_request(160);
+        flow_vol_scale.set_hexpand(true);
+
+        slider_box.append(&icon_low);
+        slider_box.append(&flow_vol_scale);
+        slider_box.append(&icon_high);
+        popover_box.append(&slider_box);
+
+        let hint_label = gtk4::Label::builder()
+            .label("Relativt til musikk og systemlyd")
+            .css_classes(["caption", "dim-label"])
+            .halign(gtk4::Align::Start)
+            .build();
+        popover_box.append(&hint_label);
+
+        // Presets: Subtil (musikk/tinnitus), Balanse, Full
+        let presets_box = gtk4::Box::builder()
+            .orientation(gtk4::Orientation::Horizontal)
+            .spacing(6)
+            .homogeneous(true)
+            .build();
+
+        let btn_p15 = gtk4::Button::builder()
+            .label("15%")
+            .tooltip_text("15% Subtil (optimal for tinnitus-maskering bak musikk)")
+            .css_classes(["flat", "caption"])
+            .build();
+        let btn_p35 = gtk4::Button::builder()
+            .label("35%")
+            .tooltip_text("35% Balansert fokuslyd")
+            .css_classes(["flat", "caption"])
+            .build();
+        let btn_p70 = gtk4::Button::builder()
+            .label("70%")
+            .tooltip_text("70% Tydelig maskering for dyp konsentrasjon")
+            .css_classes(["flat", "caption"])
+            .build();
+
+        presets_box.append(&btn_p15);
+        presets_box.append(&btn_p35);
+        presets_box.append(&btn_p70);
+        popover_box.append(&presets_box);
+
+        flow_vol_popover.set_child(Some(&popover_box));
+        flow_vol_btn.set_popover(Some(&flow_vol_popover));
+
+        let flow_audio_btn = gtk4::Button::builder()
+            .icon_name("media-playback-start-symbolic")
+            .tooltip_text("Spill av fokus-lyd")
+            .valign(gtk4::Align::Center)
+            .css_classes(["flat", "circular"])
             .build();
         flow_sound_row.add_suffix(&flow_audio_btn);
+        flow_sound_row.add_suffix(&flow_vol_btn);
 
         flow_sound_group.add(&flow_sound_row);
         flow_box.append(&flow_sound_group);
@@ -617,6 +727,19 @@ impl TetherUi {
             .selected(selected_sound_idx)
             .build();
         set_audio_group.add(&sound_combo);
+
+        let set_vol_row = ActionRow::builder()
+            .title("Lydstyrke")
+            .subtitle("Forholdstall relativt til musikk og systemlyd")
+            .build();
+        let set_vol_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 0.0, 100.0, 1.0);
+        set_vol_scale.set_value(initial_vol_pct);
+        set_vol_scale.set_draw_value(true);
+        set_vol_scale.set_value_pos(gtk4::PositionType::Right);
+        set_vol_scale.set_width_request(160);
+        set_vol_scale.set_valign(gtk4::Align::Center);
+        set_vol_row.add_suffix(&set_vol_scale);
+        set_audio_group.add(&set_vol_row);
 
         let auto_sound_switch = SwitchRow::builder()
             .title("Start lyden automatisk ved fokus")
@@ -958,8 +1081,12 @@ impl TetherUi {
             mini_expand_btn,
             flow_sound_dropdown: flow_sound_dropdown.clone(),
             flow_audio_btn: flow_audio_btn.clone(),
+            flow_vol_btn: flow_vol_btn.clone(),
+            flow_vol_scale: flow_vol_scale.clone(),
+            flow_vol_label: flow_vol_label.clone(),
             flow_sound_row: flow_sound_row.clone(),
             sound_combo: sound_combo.clone(),
+            set_vol_scale: set_vol_scale.clone(),
             anchor_group,
             anchor_row,
             anchor_resume_btn,
@@ -1232,6 +1359,76 @@ impl TetherUi {
             let ui_clone = ui.clone();
             flow_audio_btn.connect_clicked(move |_| {
                 ui_clone.toggle_audio();
+            });
+        }
+
+        // Event: Presets for Volume Popover
+        {
+            let flow_vol_scale_clone = flow_vol_scale.clone();
+            btn_p15.connect_clicked(move |_| {
+                flow_vol_scale_clone.set_value(15.0);
+            });
+        }
+        {
+            let flow_vol_scale_clone = flow_vol_scale.clone();
+            btn_p35.connect_clicked(move |_| {
+                flow_vol_scale_clone.set_value(35.0);
+            });
+        }
+        {
+            let flow_vol_scale_clone = flow_vol_scale.clone();
+            btn_p70.connect_clicked(move |_| {
+                flow_vol_scale_clone.set_value(70.0);
+            });
+        }
+
+        // Event: Flow Volume Scale
+        {
+            let state_clone = state.clone();
+            let set_vol_scale_clone = set_vol_scale.clone();
+            let flow_vol_btn_clone = flow_vol_btn.clone();
+            let flow_vol_label_clone = flow_vol_label.clone();
+            flow_vol_scale.connect_value_changed(move |scale| {
+                let val = scale.value();
+                let vol_frac = (val / 100.0).clamp(0.0, 1.0) as f32;
+                flow_vol_label_clone.set_label(&format!("{:.0}%", val));
+                flow_vol_btn_clone.set_icon_name(Self::volume_icon_name(val));
+                {
+                    let mut st = state_clone.borrow_mut();
+                    if (st.settings.soundscape_volume - vol_frac).abs() > 0.005 {
+                        st.settings.soundscape_volume = vol_frac;
+                        st.audio.set_volume(vol_frac);
+                        let _ = storage::save_settings(&st.settings);
+                    }
+                }
+                if (set_vol_scale_clone.value() - val).abs() > 0.5 {
+                    set_vol_scale_clone.set_value(val);
+                }
+            });
+        }
+
+        // Event: Settings Volume Scale
+        {
+            let state_clone = state.clone();
+            let flow_vol_scale_clone = flow_vol_scale.clone();
+            let flow_vol_btn_clone = flow_vol_btn.clone();
+            let flow_vol_label_clone = flow_vol_label.clone();
+            set_vol_scale.connect_value_changed(move |scale| {
+                let val = scale.value();
+                let vol_frac = (val / 100.0).clamp(0.0, 1.0) as f32;
+                flow_vol_label_clone.set_label(&format!("{:.0}%", val));
+                flow_vol_btn_clone.set_icon_name(Self::volume_icon_name(val));
+                {
+                    let mut st = state_clone.borrow_mut();
+                    if (st.settings.soundscape_volume - vol_frac).abs() > 0.005 {
+                        st.settings.soundscape_volume = vol_frac;
+                        st.audio.set_volume(vol_frac);
+                        let _ = storage::save_settings(&st.settings);
+                    }
+                }
+                if (flow_vol_scale_clone.value() - val).abs() > 0.5 {
+                    flow_vol_scale_clone.set_value(val);
+                }
             });
         }
 
@@ -1968,7 +2165,7 @@ impl TetherUi {
             self.mini_audio_btn.set_tooltip_text(Some("Stopp fokus-lyd"));
 
             self.flow_audio_btn.set_icon_name("media-playback-pause-symbolic");
-            self.flow_audio_btn.set_label("Pause");
+            self.flow_audio_btn.set_tooltip_text(Some("Pause fokus-lyd"));
             self.flow_audio_btn.add_css_class("accent");
             let sound_name = match st.audio.current_type {
                 SoundscapeType::BrownNoise => "Brun støy (dyp ro)",
@@ -1985,7 +2182,7 @@ impl TetherUi {
             self.mini_audio_btn.set_tooltip_text(Some("Start fokus-lyd"));
 
             self.flow_audio_btn.set_icon_name("media-playback-start-symbolic");
-            self.flow_audio_btn.set_label("Spill av");
+            self.flow_audio_btn.set_tooltip_text(Some("Spill av fokus-lyd"));
             self.flow_audio_btn.remove_css_class("accent");
             self.flow_sound_row.set_subtitle("Prosedyrisk støy for dyp konsentrasjon");
         }
@@ -2176,7 +2373,7 @@ impl TetherUi {
             self.mini_audio_btn.add_css_class("mini-audio-btn-playing");
             self.mini_audio_btn.set_tooltip_text(Some("Stopp fokus-lyd"));
             self.flow_audio_btn.set_icon_name("media-playback-pause-symbolic");
-            self.flow_audio_btn.set_label("Pause");
+            self.flow_audio_btn.set_tooltip_text(Some("Pause fokus-lyd"));
             self.flow_audio_btn.add_css_class("accent");
             let sound_name = match current_type {
                 SoundscapeType::BrownNoise => "Brun støy (dyp ro)",
@@ -2190,7 +2387,7 @@ impl TetherUi {
             self.mini_audio_btn.add_css_class("mini-audio-btn-stopped");
             self.mini_audio_btn.set_tooltip_text(Some("Start fokus-lyd"));
             self.flow_audio_btn.set_icon_name("media-playback-start-symbolic");
-            self.flow_audio_btn.set_label("Spill av");
+            self.flow_audio_btn.set_tooltip_text(Some("Spill av fokus-lyd"));
             self.flow_audio_btn.remove_css_class("accent");
             self.flow_sound_row.set_subtitle("Prosedyrisk støy for dyp konsentrasjon");
         }
@@ -2288,6 +2485,18 @@ impl TetherUi {
                 row.add_prefix(&check_btn);
                 self.impulses_list_box.append(&row);
             }
+        }
+    }
+
+    pub fn volume_icon_name(vol_pct: f64) -> &'static str {
+        if vol_pct <= 0.01 {
+            "audio-volume-muted-symbolic"
+        } else if vol_pct < 33.0 {
+            "audio-volume-low-symbolic"
+        } else if vol_pct < 67.0 {
+            "audio-volume-medium-symbolic"
+        } else {
+            "audio-volume-high-symbolic"
         }
     }
 }
