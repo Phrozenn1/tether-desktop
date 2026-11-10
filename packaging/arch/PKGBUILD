@@ -9,7 +9,7 @@ license=('MIT')
 depends=('gtk4' 'libadwaita' 'alsa-lib')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('cf1a15a7c97a2d0eeda27d3ac8ee5af3e191a774b060663e553e28d0680edbde')
+sha256sums=('562fdaf77d6363a7f43b1dc58988510b793e671625d4b6d4ff6f04d3d8bd7e87')
 
 prepare() {
     cd "$srcdir/tether-desktop-$pkgver"
