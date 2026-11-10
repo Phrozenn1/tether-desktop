@@ -18,6 +18,11 @@ use crate::impulse::ImpulseState;
 use crate::ramdump::RamDumpState;
 use crate::storage::{self, ContextAnchor, Language, LanguageSetting, SideQuestFormat, TetherSettings, UserStats};
 
+pub const FULL_WINDOW_WIDTH: i32 = 940;
+pub const FULL_WINDOW_HEIGHT: i32 = 640;
+pub const FULL_WINDOW_MIN_WIDTH: i32 = 900;
+pub const FULL_WINDOW_MIN_HEIGHT: i32 = 480;
+
 pub struct AppState {
     pub flow: Flowmodoro,
     pub audio: SoundscapePlayer,
@@ -67,6 +72,7 @@ pub struct TetherUi {
     pub mini_badge: gtk4::Label,
     pub mini_toggle_btn: gtk4::Button,
     pub mini_micro_btn: gtk4::Button,
+    pub mini_audio_btn: gtk4::Button,
     pub mini_expand_btn: gtk4::Button,
 
     // Context anchor widgets
@@ -160,10 +166,10 @@ impl TetherUi {
         let window = gtk4::ApplicationWindow::builder()
             .application(app)
             .title("Tether — ADHD Flow & Save-State")
-            .default_width(820)
-            .default_height(860)
+            .default_width(FULL_WINDOW_WIDTH)
+            .default_height(FULL_WINDOW_HEIGHT)
             .build();
-        window.set_size_request(800, 720);
+        window.set_size_request(FULL_WINDOW_MIN_WIDTH, FULL_WINDOW_MIN_HEIGHT);
 
         let header_bar = HeaderBar::new();
         let view_stack = ViewStack::new();
@@ -209,6 +215,7 @@ impl TetherUi {
         // --- PAGE 1: Flowmodoro ---
         let flow_scroll = gtk4::ScrolledWindow::builder()
             .hscrollbar_policy(gtk4::PolicyType::Never)
+            .propagate_natural_height(true)
             .vexpand(true)
             .hexpand(true)
             .build();
@@ -388,6 +395,7 @@ impl TetherUi {
         // --- PAGE 2: RAM-Dump ---
         let ram_scroll = gtk4::ScrolledWindow::builder()
             .hscrollbar_policy(gtk4::PolicyType::Never)
+            .propagate_natural_height(true)
             .vexpand(true)
             .hexpand(true)
             .build();
@@ -447,6 +455,7 @@ impl TetherUi {
         // --- PAGE 3: Side-quests / Impulser ---
         let imp_scroll = gtk4::ScrolledWindow::builder()
             .hscrollbar_policy(gtk4::PolicyType::Never)
+            .propagate_natural_height(true)
             .vexpand(true)
             .hexpand(true)
             .build();
@@ -531,7 +540,7 @@ impl TetherUi {
         // Group: Language & Locale
         let initial_lang = initial_settings.language.resolve();
         let set_general_group = PreferencesGroup::builder()
-            .title(match initial_lang { Language::Norwegian => "Språk & Utseende", _ => "Language & Appearance" })
+            .title(match initial_lang { Language::Norwegian => "Språk og utseende", _ => "Language and Appearance" })
             .description(match initial_lang { Language::Norwegian => "Velg språk for Tether (auto-oppdages fra systemet)", _ => "Choose interface language (auto-detects from system)" })
             .build();
 
@@ -774,6 +783,7 @@ impl TetherUi {
             "Øverst til venstre",
             "Nederst til venstre",
             "Øverst sentrert",
+            "Nederst sentrert",
         ]);
         let placement_idx = match initial_settings.mini_hud_placement {
             storage::MiniHudPlacement::Floating => 0,
@@ -782,6 +792,7 @@ impl TetherUi {
             storage::MiniHudPlacement::TopLeft => 3,
             storage::MiniHudPlacement::BottomLeft => 4,
             storage::MiniHudPlacement::TopCenter => 5,
+            storage::MiniHudPlacement::BottomCenter => 6,
         };
         let placement_combo = ComboRow::builder()
             .title("Plassering av Mini-HUD")
@@ -813,7 +824,7 @@ impl TetherUi {
         let main_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
         main_box.set_vexpand(true);
         main_box.set_hexpand(true);
-        main_box.set_size_request(800, 720);
+        main_box.set_size_request(FULL_WINDOW_MIN_WIDTH, FULL_WINDOW_MIN_HEIGHT);
         main_box.append(&header_bar);
         main_box.append(&view_stack);
 
@@ -867,6 +878,14 @@ impl TetherUi {
             .build();
         mini_hud_box.append(&mini_micro_btn);
 
+        let mini_audio_btn = gtk4::Button::builder()
+            .icon_name("audio-x-generic-symbolic")
+            .tooltip_text("Start / Stopp fokus-lyd")
+            .valign(gtk4::Align::Center)
+            .css_classes(["flat", "mini-audio-btn-stopped"])
+            .build();
+        mini_hud_box.append(&mini_audio_btn);
+
         let mini_expand_btn = gtk4::Button::builder()
             .icon_name("view-fullscreen-symbolic")
             .tooltip_text("Utvid til fullt Tether-vindu [Esc]")
@@ -900,6 +919,7 @@ impl TetherUi {
             mini_badge,
             mini_toggle_btn,
             mini_micro_btn,
+            mini_audio_btn,
             mini_expand_btn,
             anchor_group,
             anchor_row,
@@ -990,6 +1010,14 @@ impl TetherUi {
             let ui_clone = ui.clone();
             ui.mini_micro_btn.connect_clicked(move |_| {
                 ui_clone.start_micro();
+            });
+        }
+
+        // Event: Mini audio toggle
+        {
+            let ui_clone = ui.clone();
+            ui.mini_audio_btn.connect_clicked(move |_| {
+                ui_clone.toggle_audio();
             });
         }
 
@@ -1352,6 +1380,7 @@ impl TetherUi {
                     3 => storage::MiniHudPlacement::TopLeft,
                     4 => storage::MiniHudPlacement::BottomLeft,
                     5 => storage::MiniHudPlacement::TopCenter,
+                    6 => storage::MiniHudPlacement::BottomCenter,
                     _ => storage::MiniHudPlacement::Floating,
                 };
                 let mut st = state_clone.borrow_mut();
@@ -1451,7 +1480,7 @@ impl TetherUi {
             // Save full window position before shrinking (validated & clamped)
             if let Some((cur_x, cur_y)) = storage::get_tether_window_pos() {
                 let locked = self.state.borrow().settings.locked_monitor.clone();
-                let clamped = storage::clamp_full_window_pos(cur_x, cur_y, 820, 860, &locked);
+                let clamped = storage::clamp_full_window_pos(cur_x, cur_y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &locked);
                 let mut st = self.state.borrow_mut();
                 st.settings.custom_pos_full = Some(clamped);
                 let _ = storage::save_settings(&st.settings);
@@ -1500,29 +1529,29 @@ impl TetherUi {
                 let (target_x, target_y) = {
                     let st = self.state.borrow();
                     if let Some((x, y)) = st.settings.custom_pos_full {
-                        storage::clamp_full_window_pos(x, y, 820, 860, &st.settings.locked_monitor)
+                        storage::clamp_full_window_pos(x, y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
                     } else {
-                        storage::get_centered_full_pos(820, 860, &st.settings.locked_monitor)
+                        storage::get_centered_full_pos(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
                     }
                 };
                 // Move and resize window BEFORE setting full content so it doesn't jump or expand off-screen
                 storage::move_window_to_pos(target_x, target_y);
-                storage::resize_window(820, 860);
+                storage::resize_window(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT);
             }
 
-            self.window.set_size_request(800, 720);
+            self.window.set_size_request(FULL_WINDOW_MIN_WIDTH, FULL_WINDOW_MIN_HEIGHT);
             self.window.set_decorated(true);
             self.window.set_child(Some(&self.main_box));
-            self.window.set_default_size(820, 860);
+            self.window.set_default_size(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT);
 
             #[cfg(target_os = "linux")]
             {
                 let (target_x, target_y) = {
                     let st = self.state.borrow();
                     if let Some((x, y)) = st.settings.custom_pos_full {
-                        storage::clamp_full_window_pos(x, y, 820, 860, &st.settings.locked_monitor)
+                        storage::clamp_full_window_pos(x, y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
                     } else {
-                        storage::get_centered_full_pos(820, 860, &st.settings.locked_monitor)
+                        storage::get_centered_full_pos(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
                     }
                 };
                 storage::move_window_to_pos(target_x, target_y);
@@ -1737,7 +1766,7 @@ impl TetherUi {
                                 }
                             }
                         } else {
-                            let (clamped_x, clamped_y) = storage::clamp_full_window_pos(cur_x, cur_y, 820, 860, &locked_mon);
+                            let (clamped_x, clamped_y) = storage::clamp_full_window_pos(cur_x, cur_y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &locked_mon);
                             if cur_y >= 30 && (clamped_x - cur_x).abs() <= 50 && (clamped_y - cur_y).abs() <= 50 {
                                 let should_save = match st.settings.custom_pos_full {
                                     Some((old_x, old_y)) => (clamped_x - old_x).abs() > 4 || (clamped_y - old_y).abs() > 4,
@@ -1866,13 +1895,19 @@ impl TetherUi {
             }
         }
 
-        // Audio button state in header
+        // Audio button state in header and Mini-HUD
         if st.audio.is_playing {
             self.audio_btn.set_icon_name("media-playback-pause-symbolic");
             self.audio_btn.add_css_class("accent");
+            self.mini_audio_btn.remove_css_class("mini-audio-btn-stopped");
+            self.mini_audio_btn.add_css_class("mini-audio-btn-playing");
+            self.mini_audio_btn.set_tooltip_text(Some("Stopp fokus-lyd"));
         } else {
             self.audio_btn.set_icon_name("audio-volume-high-symbolic");
             self.audio_btn.remove_css_class("accent");
+            self.mini_audio_btn.remove_css_class("mini-audio-btn-playing");
+            self.mini_audio_btn.add_css_class("mini-audio-btn-stopped");
+            self.mini_audio_btn.set_tooltip_text(Some("Start fokus-lyd"));
         }
 
         // Editor integration state & UI visibility
@@ -1998,10 +2033,15 @@ impl TetherUi {
     }
 
     pub fn toggle_flow(&self) {
-        let mut st = self.state.borrow_mut();
-        st.flow.toggle();
-        if st.flow.state == FlowState::Break {
-            drop(st);
+        let (_old_state, new_state) = {
+            let mut st = self.state.borrow_mut();
+            let old_state = st.flow.state;
+            st.flow.toggle();
+            let new_state = st.flow.state;
+            st.audio.handle_flow_state_transition(old_state, new_state);
+            (old_state, new_state)
+        };
+        if new_state == FlowState::Break {
             self.set_mini_hud_mode(false);
             self.window.set_visible(true);
             self.window.present();
@@ -2011,8 +2051,11 @@ impl TetherUi {
 
     pub fn start_micro(&self) {
         let mut st = self.state.borrow_mut();
+        let old_state = st.flow.state;
         st.flow.start_micro_start();
         st.last_recorded_focus_mins = 0;
+        let new_state = st.flow.state;
+        st.audio.handle_flow_state_transition(old_state, new_state);
     }
 
     pub fn reset_flow(&self) {
@@ -2022,8 +2065,20 @@ impl TetherUi {
     }
 
     pub fn toggle_audio(&self) {
-        let mut st = self.state.borrow_mut();
-        st.audio.toggle_play();
+        let is_playing = {
+            let mut st = self.state.borrow_mut();
+            st.audio.toggle_play();
+            st.audio.is_playing
+        };
+        if is_playing {
+            self.mini_audio_btn.remove_css_class("mini-audio-btn-stopped");
+            self.mini_audio_btn.add_css_class("mini-audio-btn-playing");
+            self.mini_audio_btn.set_tooltip_text(Some("Stopp fokus-lyd"));
+        } else {
+            self.mini_audio_btn.remove_css_class("mini-audio-btn-playing");
+            self.mini_audio_btn.add_css_class("mini-audio-btn-stopped");
+            self.mini_audio_btn.set_tooltip_text(Some("Start fokus-lyd"));
+        }
     }
 
     pub fn save_ramdump(&self) {

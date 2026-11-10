@@ -95,6 +95,8 @@ pub enum MiniHudPlacement {
     BottomLeft,
     #[serde(rename = "top_center")]
     TopCenter,
+    #[serde(rename = "bottom_center")]
+    BottomCenter,
 }
 
 impl Default for MiniHudPlacement {
@@ -438,6 +440,12 @@ impl MiniHudPlacement {
                 let mon = get_target_monitor(&settings.locked_monitor)?;
                 let x = mon.x + (mon.logical_width() - 320.0) / 2.0;
                 let y = mon.y + 48.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::BottomCenter => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + (mon.logical_width() - 320.0) / 2.0;
+                let y = mon.y + mon.logical_height() - 44.0 - 24.0;
                 Some((x as i32, y as i32))
             }
         }
@@ -1107,4 +1115,18 @@ pub fn save_user_stats(stats: &UserStats) -> Result<(), std::io::Error> {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     std::fs::write(path, json)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mini_hud_placement_serde() {
+        let p = MiniHudPlacement::BottomCenter;
+        let json = serde_json::to_string(&p).expect("serialize");
+        assert_eq!(json, "\"bottom_center\"");
+        let deserialized: MiniHudPlacement = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(deserialized, MiniHudPlacement::BottomCenter);
+    }
 }

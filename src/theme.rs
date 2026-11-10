@@ -190,6 +190,16 @@ pub fn generate_css(colors: &OmarchyColors) -> String {
             letter-spacing: 0.5px;
             margin: 0 4px;
         }}
+        .mini-audio-btn-playing,
+        .mini-audio-btn-playing image,
+        .mini-audio-btn-playing label {{
+            color: {green};
+        }}
+        .mini-audio-btn-stopped,
+        .mini-audio-btn-stopped image,
+        .mini-audio-btn-stopped label {{
+            color: {red};
+        }}
         "#,
         accent = colors.accent,
         bg = colors.background,
