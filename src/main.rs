@@ -15,6 +15,12 @@ use libadwaita::Application;
 use ui::TetherUi;
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "--speedbump" {
+        speedbump::run_speedbump_dialog(&args[2..]);
+        return;
+    }
+
     let app = Application::builder()
         .application_id("org.tether.Tether")
         .build();

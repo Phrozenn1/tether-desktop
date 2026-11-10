@@ -2015,11 +2015,14 @@ impl TetherUi {
     }
 
     pub fn prompt_speedbump(&self, win: crate::speedbump::ActiveWindowInfo, trigger: String) {
-        let (lang, elapsed_mins, was_mini) = {
+        let (lang_str, elapsed_mins) = {
             let st = self.state.borrow();
-            let lang = st.settings.language.resolve();
+            let lang = match st.settings.language.resolve() {
+                Language::Norwegian => "no",
+                _ => "en",
+            };
             let mins = st.flow.elapsed_focus_secs / 60;
-            (lang, mins, st.is_mini_hud)
+            (lang, mins)
         };
 
         let title_clean = if win.title.trim().is_empty() {
@@ -2028,121 +2031,93 @@ impl TetherUi {
             win.title.clone()
         };
 
-        let heading = match lang {
-            Language::Norwegian => "Fartsdump",
-            _ => "Speedbump",
-        };
-
-        let body = match lang {
-            Language::Norwegian => format!(
-                "Du har vært i dyp flyt i {} minutter.\n\nOppdaget aktivt vindu:\n\"{}\" (matcher \"{}\")\n\nEr dette et kaninhull, eller er det relevant for oppgaven du jobber med?",
-                elapsed_mins, title_clean, trigger
-            ),
-            _ => format!(
-                "You have been in deep flow for {} minutes.\n\nDetected active window:\n\"{}\" (matches \"{}\")\n\nIs this a rabbit hole, or is it relevant to your current task?",
-                elapsed_mins, title_clean, trigger
-            ),
-        };
-
-        let alert = libadwaita::AlertDialog::builder()
-            .heading(heading)
-            .body(&body)
-            .build();
-
-        let resp_impulse = match lang {
-            Language::Norwegian => "Parkér som impuls",
-            _ => "Park as impulse",
-        };
-        let resp_relevant = match lang {
-            Language::Norwegian => "Dette er relevant",
-            _ => "This is relevant",
-        };
-        let resp_break = match lang {
-            Language::Norwegian => "Ta pause nå",
-            _ => "Take break now",
-        };
-
-        alert.add_response("impulse", resp_impulse);
-        alert.add_response("relevant", resp_relevant);
-        alert.add_response("break", resp_break);
-
-        alert.set_response_appearance("impulse", libadwaita::ResponseAppearance::Suggested);
-        alert.set_default_response(Some("impulse"));
-        alert.set_close_response("relevant");
-
-        // Send a calm notification as well
-        let notify_title = heading;
-        let notify_body = match lang {
-            Language::Norwegian => format!("Du har vært i flyt i {} minutter. Er \"{}\" et kaninhull?", elapsed_mins, trigger),
-            _ => format!("You've been in flow for {} minutes. Is \"{}\" a rabbit hole?", elapsed_mins, trigger),
+        // Desktop notification as quiet alert alongside centered popup window
+        let notify_title = if lang_str == "no" { "Fartsdump" } else { "Speedbump" };
+        let notify_body = if lang_str == "no" {
+            format!("Du har vært i flyt i {} minutter. Er \"{}\" et kaninhull?", elapsed_mins, trigger)
+        } else {
+            format!("You've been in flow for {} minutes. Is \"{}\" a rabbit hole?", elapsed_mins, trigger)
         };
         crate::flowmodoro::notify(notify_title, &notify_body);
 
-        // Make window visible and present it so user sees the prompt
-        self.window.set_visible(true);
-        self.window.present();
-
+        let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("tether"));
         let state = self.state.clone();
-        let window = self.window.clone();
-        let mini_hud_box = self.mini_hud_box.clone();
-        let ram_now_entry = self.ram_now_entry.clone();
-        let win_addr = win.address.clone();
         let target_title = title_clean.clone();
+        let win_addr = win.address.clone();
 
-        alert.choose(Some(&self.window), None::<&gtk4::gio::Cancellable>, move |response| {
-            match response.as_str() {
-                "impulse" => {
-                    let impulse_text = format!("Sjekk: {}", target_title);
-                    {
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+
+        glib::timeout_add_local(Duration::from_millis(80), move || {
+            if let Ok(choice) = rx.try_recv() {
+                match choice.as_str() {
+                    "impulse" => {
+                        let impulse_text = format!("Sjekk: {}", target_title);
+                        {
+                            let mut st = state.borrow_mut();
+                            st.speedbump_active_prompt = false;
+                            st.impulse.input_text = impulse_text;
+                            let settings = st.settings.clone();
+                            let _ = st.impulse.capture_with_settings(&settings);
+                            st.stats.record_impulse();
+                            let _ = storage::save_user_stats(&st.stats);
+                        }
+                        crate::speedbump::refocus_editor();
+                    }
+                    "relevant" => {
                         let mut st = state.borrow_mut();
                         st.speedbump_active_prompt = false;
-                        st.impulse.input_text = impulse_text;
-                        let settings = st.settings.clone();
-                        let _ = st.impulse.capture_with_settings(&settings);
-                        st.stats.record_impulse();
-                        let _ = storage::save_user_stats(&st.stats);
+                        st.speedbump.snooze(&win_addr);
                     }
-                    crate::speedbump::refocus_editor();
-                    if was_mini {
-                        window.set_decorated(false);
-                        window.set_child(Some(&mini_hud_box));
-                        window.set_size_request(320, 44);
-                        window.set_default_size(320, 44);
+                    "break" => {
+                        let mut st = state.borrow_mut();
+                        st.speedbump_active_prompt = false;
+                        let old_state = st.flow.state;
+                        st.flow.start_break();
+                        let new_state = st.flow.state;
+                        st.previous_state = new_state;
+                        st.audio.handle_flow_state_transition(old_state, new_state);
                     }
-                }
-                "relevant" => {
-                    let mut st = state.borrow_mut();
-                    st.speedbump_active_prompt = false;
-                    st.speedbump.snooze(&win_addr);
-                    if was_mini {
-                        window.set_decorated(false);
-                        window.set_child(Some(&mini_hud_box));
-                        window.set_size_request(320, 44);
-                        window.set_default_size(320, 44);
+                    _ => {
+                        let mut st = state.borrow_mut();
+                        st.speedbump_active_prompt = false;
                     }
                 }
-                "break" => {
-                    let mut st = state.borrow_mut();
-                    st.speedbump_active_prompt = false;
-                    let old_state = st.flow.state;
-                    st.flow.start_break();
-                    let new_state = st.flow.state;
-                    st.previous_state = new_state;
-                    st.audio.handle_flow_state_transition(old_state, new_state);
-                    drop(st);
-
-                    window.set_decorated(true);
-                    window.set_size_request(FULL_WINDOW_MIN_WIDTH, FULL_WINDOW_MIN_HEIGHT);
-                    window.set_default_size(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT);
-                    window.set_visible(true);
-                    window.present();
-                    ram_now_entry.grab_focus();
-                }
-                _ => {
-                    let mut st = state.borrow_mut();
-                    st.speedbump_active_prompt = false;
-                }
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
             }
+        });
+
+        let target_title_for_thread = title_clean;
+        let win_addr_for_thread = win.address;
+
+        std::thread::spawn(move || {
+            let output = std::process::Command::new(&exe)
+                .args([
+                    "--speedbump",
+                    &elapsed_mins.to_string(),
+                    &target_title_for_thread,
+                    &trigger,
+                    &win_addr_for_thread,
+                    lang_str,
+                ])
+                .output();
+
+            let choice = match output {
+                Ok(out) => {
+                    let s = String::from_utf8_lossy(&out.stdout);
+                    if s.contains("impulse") {
+                        "impulse".to_string()
+                    } else if s.contains("break") {
+                        "break".to_string()
+                    } else {
+                        "relevant".to_string()
+                    }
+                }
+                Err(_) => "relevant".to_string(),
+            };
+
+            let _ = tx.send(choice);
         });
     }
 

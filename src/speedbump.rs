@@ -162,9 +162,167 @@ pub fn refocus_editor() {
     }
 }
 
+/// Run dedicated Speedbump dialog window (called via `tether --speedbump ...`).
+/// Presents a focused, centered modal alert directly in the middle of the screen.
+pub fn run_speedbump_dialog(args: &[String]) {
+    use gtk4::prelude::*;
+
+    let elapsed_mins = args.get(0).cloned().unwrap_or_else(|| "0".to_string());
+    let title = args.get(1).cloned().unwrap_or_else(|| "".to_string());
+    let trigger = args.get(2).cloned().unwrap_or_else(|| "".to_string());
+    let _address = args.get(3).cloned().unwrap_or_else(|| "".to_string());
+    let lang = args.get(4).map(|s| s.as_str()).unwrap_or("no");
+
+    let is_no = lang == "no";
+
+    let heading = if is_no { "Fartsdump" } else { "Speedbump" };
+
+    let title_display = if title.trim().is_empty() {
+        trigger.clone()
+    } else {
+        title.clone()
+    };
+
+    let body_text = if is_no {
+        format!(
+            "Du har vært i dyp flyt i {} minutter.\n\nOppdaget aktivt vindu:\n\"{}\" (matcher \"{}\")\n\nEr dette et kaninhull, eller er det relevant for oppgaven du jobber med?",
+            elapsed_mins, title_display, trigger
+        )
+    } else {
+        format!(
+            "You have been in deep flow for {} minutes.\n\nDetected active window:\n\"{}\" (matches \"{}\")\n\nIs this a rabbit hole, or is it relevant to your current task?",
+            elapsed_mins, title_display, trigger
+        )
+    };
+
+    let btn_impulse = if is_no { "Parkér som impuls" } else { "Park as impulse" };
+    let btn_relevant = if is_no { "Dette er relevant" } else { "This is relevant" };
+    let btn_break = if is_no { "Ta pause nå" } else { "Take break now" };
+
+    let app = libadwaita::Application::builder()
+        .application_id("org.tether.Speedbump")
+        .build();
+
+    app.connect_activate(move |app| {
+        let window = gtk4::ApplicationWindow::builder()
+            .application(app)
+            .title(heading)
+            .default_width(480)
+            .default_height(240)
+            .resizable(false)
+            .modal(true)
+            .build();
+
+        let toolbar_view = libadwaita::ToolbarView::new();
+        let header_bar = libadwaita::HeaderBar::new();
+        header_bar.set_show_end_title_buttons(true);
+        let title_widget = libadwaita::WindowTitle::new(
+            heading,
+            if is_no { "Avsporingsvern" } else { "Distraction Interceptor" },
+        );
+        header_bar.set_title_widget(Some(&title_widget));
+        toolbar_view.add_top_bar(&header_bar);
+
+        let content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 16);
+        content_box.set_margin_top(16);
+        content_box.set_margin_bottom(20);
+        content_box.set_margin_start(24);
+        content_box.set_margin_end(24);
+
+        let label = gtk4::Label::builder()
+            .label(&body_text)
+            .wrap(true)
+            .wrap_mode(gtk4::pango::WrapMode::WordChar)
+            .justify(gtk4::Justification::Center)
+            .xalign(0.5)
+            .build();
+        content_box.append(&label);
+
+        let btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
+        btn_box.set_halign(gtk4::Align::Center);
+        btn_box.set_margin_top(8);
+
+        let impulse_button = gtk4::Button::with_label(btn_impulse);
+        impulse_button.add_css_class("suggested-action");
+        impulse_button.add_css_class("pill");
+
+        let relevant_button = gtk4::Button::with_label(btn_relevant);
+        relevant_button.add_css_class("flat");
+
+        let break_button = gtk4::Button::with_label(btn_break);
+        break_button.add_css_class("flat");
+
+        btn_box.append(&impulse_button);
+        btn_box.append(&relevant_button);
+        btn_box.append(&break_button);
+
+        content_box.append(&btn_box);
+        toolbar_view.set_content(Some(&content_box));
+        window.set_child(Some(&toolbar_view));
+
+        let app_clone1 = app.clone();
+        impulse_button.connect_clicked(move |_| {
+            println!("impulse");
+            app_clone1.quit();
+        });
+
+        let app_clone2 = app.clone();
+        relevant_button.connect_clicked(move |_| {
+            println!("relevant");
+            app_clone2.quit();
+        });
+
+        let app_clone3 = app.clone();
+        break_button.connect_clicked(move |_| {
+            println!("break");
+            app_clone3.quit();
+        });
+
+        let key_controller = gtk4::EventControllerKey::new();
+        let app_esc = app.clone();
+        let app_enter = app.clone();
+        key_controller.connect_key_pressed(move |_, key, _, _| {
+            if key == gtk4::gdk::Key::Escape {
+                println!("relevant");
+                app_esc.quit();
+                gtk4::glib::Propagation::Stop
+            } else if key == gtk4::gdk::Key::Return || key == gtk4::gdk::Key::KP_Enter {
+                println!("impulse");
+                app_enter.quit();
+                gtk4::glib::Propagation::Stop
+            } else {
+                gtk4::glib::Propagation::Proceed
+            }
+        });
+        window.add_controller(key_controller);
+
+        window.connect_close_request(|_| {
+            println!("relevant");
+            gtk4::glib::Propagation::Proceed
+        });
+
+        window.present();
+        impulse_button.grab_focus();
+
+        #[cfg(target_os = "linux")]
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            let _ = std::process::Command::new("hyprctl")
+                .args(["dispatch", "centerwindow"])
+                .output();
+            let _ = std::process::Command::new("hyprctl")
+                .args(["dispatch", "focuswindow", "class:org.tether.Speedbump"])
+                .output();
+        }
+    });
+
+    let empty_args: [&str; 0] = [];
+    app.run_with_args(&empty_args);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::TetherSettings;
 
     #[test]
     fn test_check_speedbump_trigger_matches_title() {
