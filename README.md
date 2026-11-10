@@ -90,10 +90,21 @@ Unlike window-manager-specific tools, Tether uses zero-privilege atomic state sy
 - [Rust toolchain](https://rustup.rs/) (edition 2021).
 - **GTK4** (`libgtk-4-dev`) and **Libadwaita** (`libadwaita-1-dev` $\ge$ 1.5).
 
-### Arch Linux (PKGBUILD)
+### Arch Linux (AUR / PKGBUILD)
 ```bash
+# Quick binary installation:
 cd packaging/arch
-makepkg -si
+makepkg -p PKGBUILD-bin -si
+
+# Or build from source:
+makepkg -p PKGBUILD -si
+```
+
+### Flatpak
+```bash
+# Build & install local Flatpak (GNOME 49 runtime):
+flatpak-builder --user --install --force-clean build-dir org.tether.Tether.yml
+flatpak run org.tether.Tether
 ```
 
 ### Ubuntu / Debian (.deb)

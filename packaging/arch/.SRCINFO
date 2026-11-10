@@ -1,0 +1,15 @@
+pkgbase = tether
+	pkgdesc = ADHD Flowmodoro & Brain-Dump Companion for developers
+	pkgver = 1.1.0
+	pkgrel = 1
+	url = https://github.com/Phrozenn1/tether-desktop
+	arch = x86_64
+	license = MIT
+	makedepends = cargo
+	depends = gtk4
+	depends = libadwaita
+	depends = alsa-lib
+	source = tether-1.1.0.tar.gz::https://github.com/Phrozenn1/tether-desktop/archive/refs/tags/v1.1.0.tar.gz
+	sha256sums = cf1a15a7c97a2d0eeda27d3ac8ee5af3e191a774b060663e553e28d0680edbde
+
+pkgname = tether
