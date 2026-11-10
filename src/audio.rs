@@ -1,8 +1,14 @@
+use std::io::Cursor;
 use std::time::Duration;
 use rodio::Source;
 use serde::{Deserialize, Serialize};
 
 use crate::flowmodoro::FlowState;
+
+const RAIN_BYTES: &[u8] = include_bytes!("../assets/sounds/rain.ogg");
+const WAVES_BYTES: &[u8] = include_bytes!("../assets/sounds/waves.ogg");
+const BROOK_BYTES: &[u8] = include_bytes!("../assets/sounds/brook.ogg");
+const WIND_BYTES: &[u8] = include_bytes!("../assets/sounds/wind.ogg");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SoundscapeType {
@@ -58,17 +64,37 @@ impl SoundscapeType {
         }
     }
 
+    pub fn is_sampled(&self) -> bool {
+        matches!(
+            self,
+            SoundscapeType::GentleRain
+                | SoundscapeType::OceanWaves
+                | SoundscapeType::MountainBrook
+                | SoundscapeType::ForestWind
+        )
+    }
+
+    pub fn sample_bytes(&self) -> Option<&'static [u8]> {
+        match self {
+            SoundscapeType::GentleRain => Some(RAIN_BYTES),
+            SoundscapeType::OceanWaves => Some(WAVES_BYTES),
+            SoundscapeType::MountainBrook => Some(BROOK_BYTES),
+            SoundscapeType::ForestWind => Some(WIND_BYTES),
+            _ => None,
+        }
+    }
+
     pub fn label_no(&self) -> &'static str {
         match self {
             SoundscapeType::Off => "Av",
             SoundscapeType::BrownNoise => "Brun støy (dyp ro)",
             SoundscapeType::PinkNoise => "Rosa støy (balansert)",
-            SoundscapeType::GentleRain => "Mildt regn",
+            SoundscapeType::GentleRain => "Mildt regn (reelt opptak)",
             SoundscapeType::GreenNoise => "Grønn støy (skånsom/skog)",
             SoundscapeType::Gamma40Hz => "40 Hz Gamma-puls (dyp fokus)",
-            SoundscapeType::OceanWaves => "Rullende havbølger",
-            SoundscapeType::MountainBrook => "Sildrende fjellbekk",
-            SoundscapeType::ForestWind => "Skogsvind (sus i tretopper)",
+            SoundscapeType::OceanWaves => "Rullende havbølger (reelt opptak)",
+            SoundscapeType::MountainBrook => "Sildrende fjellbekk (reelt opptak)",
+            SoundscapeType::ForestWind => "Skogsvind (reelt opptak)",
         }
     }
 
@@ -77,12 +103,12 @@ impl SoundscapeType {
             SoundscapeType::Off => "Off",
             SoundscapeType::BrownNoise => "Brown Noise (deep calm)",
             SoundscapeType::PinkNoise => "Pink Noise (balanced)",
-            SoundscapeType::GentleRain => "Gentle Rain",
+            SoundscapeType::GentleRain => "Gentle Rain (field recording)",
             SoundscapeType::GreenNoise => "Green Noise (gentle nature band)",
             SoundscapeType::Gamma40Hz => "40 Hz Gamma Pulse (deep focus)",
-            SoundscapeType::OceanWaves => "Rolling Ocean Waves",
-            SoundscapeType::MountainBrook => "Mountain Brook",
-            SoundscapeType::ForestWind => "Forest Wind (treetop breeze)",
+            SoundscapeType::OceanWaves => "Rolling Ocean Waves (field recording)",
+            SoundscapeType::MountainBrook => "Mountain Brook (field recording)",
+            SoundscapeType::ForestWind => "Forest Wind (field recording)",
         }
     }
 }
@@ -571,7 +597,15 @@ impl SoundscapePlayer {
         if let Some(sink) = &self.sink {
             sink.stop();
             sink.set_volume(self.volume);
-            sink.append(ProceduralNoiseSource::new(self.current_type));
+            if let Some(bytes) = self.current_type.sample_bytes() {
+                if let Ok(decoder) = rodio::Decoder::new(Cursor::new(bytes)) {
+                    sink.append(decoder.repeat_infinite());
+                } else {
+                    sink.append(ProceduralNoiseSource::new(self.current_type));
+                }
+            } else {
+                sink.append(ProceduralNoiseSource::new(self.current_type));
+            }
             sink.play();
             self.is_playing = true;
         }
@@ -730,8 +764,38 @@ mod tests {
         assert_eq!(SoundscapeType::PinkNoise.label_en(), "Pink Noise (balanced)");
         assert_eq!(SoundscapeType::GreenNoise.label_no(), "Grønn støy (skånsom/skog)");
         assert_eq!(SoundscapeType::Gamma40Hz.label_no(), "40 Hz Gamma-puls (dyp fokus)");
-        assert_eq!(SoundscapeType::OceanWaves.label_no(), "Rullende havbølger");
-        assert_eq!(SoundscapeType::MountainBrook.label_no(), "Sildrende fjellbekk");
-        assert_eq!(SoundscapeType::ForestWind.label_no(), "Skogsvind (sus i tretopper)");
+        assert_eq!(SoundscapeType::GentleRain.label_no(), "Mildt regn (reelt opptak)");
+        assert_eq!(SoundscapeType::OceanWaves.label_no(), "Rullende havbølger (reelt opptak)");
+        assert_eq!(SoundscapeType::MountainBrook.label_no(), "Sildrende fjellbekk (reelt opptak)");
+        assert_eq!(SoundscapeType::ForestWind.label_no(), "Skogsvind (reelt opptak)");
+    }
+
+    #[test]
+    fn test_real_nature_samples_decode_and_loop() {
+        for sound in [
+            SoundscapeType::GentleRain,
+            SoundscapeType::OceanWaves,
+            SoundscapeType::MountainBrook,
+            SoundscapeType::ForestWind,
+        ] {
+            assert!(sound.is_sampled());
+            let bytes = sound.sample_bytes().expect("sampled sound must have bytes");
+            assert!(bytes.len() > 100_000, "sample audio file must be substantial");
+
+            let decoder = rodio::Decoder::new(Cursor::new(bytes))
+                .unwrap_or_else(|e| panic!("Failed to decode {:?}: {:?}", sound, e));
+            assert_eq!(decoder.channels(), 2, "{:?} must be stereo", sound);
+            assert_eq!(decoder.sample_rate(), 44100, "{:?} must be 44.1 kHz", sound);
+
+            let mut looped = decoder.repeat_infinite();
+            let mut non_zero = 0;
+            for _ in 0..50_000 {
+                let sample = looped.next().expect("infinite loop should never end");
+                if sample != 0 {
+                    non_zero += 1;
+                }
+            }
+            assert!(non_zero > 1_000, "sample audio must have audio energy for {:?}", sound);
+        }
     }
 }

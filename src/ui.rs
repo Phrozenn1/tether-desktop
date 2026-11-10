@@ -335,18 +335,8 @@ impl TetherUi {
         let sound_icon = gtk4::Image::from_icon_name("audio-x-generic-symbolic");
         flow_sound_row.add_prefix(&sound_icon);
 
-        let sound_names = [
-            "Av",
-            "Brun støy (dyp ro)",
-            "Rosa støy (balansert)",
-            "Mildt regn",
-            "Grønn støy (skånsom/skog)",
-            "40 Hz Gamma-puls (dyp fokus)",
-            "Rullende havbølger",
-            "Sildrende fjellbekk",
-            "Skogsvind (sus i tretopper)",
-        ];
-        let flow_sound_dropdown = gtk4::DropDown::from_strings(&sound_names);
+        let sound_labels: Vec<&'static str> = SoundscapeType::ALL.iter().map(|s| s.label_no()).collect();
+        let flow_sound_dropdown = gtk4::DropDown::from_strings(&sound_labels);
         let initial_sound_idx = initial_settings.soundscape.to_index();
         flow_sound_dropdown.set_selected(initial_sound_idx);
         flow_sound_dropdown.set_valign(gtk4::Align::Center);
@@ -731,17 +721,8 @@ impl TetherUi {
             .description("Prosedyrisk støy generator for stabil kognitiv stimulering")
             .build();
 
-        let sound_models = gtk4::StringList::new(&[
-            "Av",
-            "Brun støy (dyp ro)",
-            "Rosa støy (balansert)",
-            "Mildt regn",
-            "Grønn støy (skånsom/skog)",
-            "40 Hz Gamma-puls (dyp fokus)",
-            "Rullende havbølger",
-            "Sildrende fjellbekk",
-            "Skogsvind (sus i tretopper)",
-        ]);
+        let sound_labels: Vec<&'static str> = SoundscapeType::ALL.iter().map(|s| s.label_no()).collect();
+        let sound_models = gtk4::StringList::new(&sound_labels);
         let selected_sound_idx = initial_settings.soundscape.to_index();
         let sound_combo = ComboRow::builder()
             .title("Lydtype")
