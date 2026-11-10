@@ -8,6 +8,7 @@ mod storage;
 mod theme;
 mod tray;
 mod ui;
+pub mod speedbump;
 
 use libadwaita::prelude::*;
 use libadwaita::Application;

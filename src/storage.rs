@@ -209,6 +209,12 @@ pub struct TetherSettings {
     pub soundscape_volume: f32,
     #[serde(default = "default_true")]
     pub soundscape_auto_play: bool,
+    #[serde(default = "default_true")]
+    pub speedbump_enabled: bool,
+    #[serde(default = "default_speedbump_cooldown")]
+    pub speedbump_cooldown_secs: u64,
+    #[serde(default = "default_speedbump_triggers")]
+    pub speedbump_triggers: Vec<String>,
 }
 
 fn default_focus_ratio() -> u32 { 45 }
@@ -219,6 +225,21 @@ fn default_locked_monitor() -> String { "auto".to_string() }
 fn default_terminal_command() -> String { "xdg-terminal-exec nvim".to_string() }
 fn default_soundscape() -> crate::audio::SoundscapeType { crate::audio::SoundscapeType::Off }
 fn default_soundscape_volume() -> f32 { 0.45 }
+fn default_speedbump_cooldown() -> u64 { 60 }
+fn default_speedbump_triggers() -> Vec<String> {
+    vec![
+        "reddit".to_string(),
+        "youtube".to_string(),
+        "twitter".to_string(),
+        "x.com".to_string(),
+        "instagram".to_string(),
+        "facebook".to_string(),
+        "tiktok".to_string(),
+        "twitch".to_string(),
+        "discord".to_string(),
+        "steam".to_string(),
+    ]
+}
 fn default_side_quests_file() -> String {
     get_data_dir().join("impulses.md").to_string_lossy().to_string()
 }
@@ -247,6 +268,9 @@ impl Default for TetherSettings {
             soundscape: default_soundscape(),
             soundscape_volume: default_soundscape_volume(),
             soundscape_auto_play: true,
+            speedbump_enabled: true,
+            speedbump_cooldown_secs: 60,
+            speedbump_triggers: default_speedbump_triggers(),
         }
     }
 }
