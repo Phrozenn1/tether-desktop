@@ -1,91 +1,142 @@
 # Tether Desktop ⚓
 
-### Cross-Platform Flowmodoro Timer, RAM-Dump & ADHD Workflow Engine
+[![Release](https://img.shields.io/github/v/release/Phrozenn1/tether-desktop?color=blue&label=version)](https://github.com/Phrozenn1/tether-desktop/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)](https://github.com/Phrozenn1/tether-desktop)
 
-A standalone desktop application written in **Rust** (using [egui / eframe](https://github.com/emilk/egui)) designed to bring the **Tether** ADHD workflow strategies to your entire operating system—compatible with **Linux** (Wayland / X11), **macOS**, and **Windows**.
+### Cross-Platform Flowmodoro Timer, RAM-Dump & ADHD Workflow Engine for Developers
+
+**Tether** is an unbreakable desktop companion built in **Rust** with **GTK4** and **Libadwaita** following GNOME Human Interface Guidelines (HIG). Designed specifically to mitigate the core cognitive friction points of ADHD: **executive dysfunction**, **working memory decay**, **hyperfocus interruption**, and **shame-based streak habits**.
+
+Tether runs natively and seamlessly across **Linux** (GNOME, KDE Plasma, Hyprland, Sway, X11, Wayland), **macOS**, and **Windows**, featuring deep bi-directional synchronization with **Neovim** ([`tether.nvim`](https://github.com/Phrozenn1/tether.nvim)) and **VS Code** ([`tether-vscode`](https://github.com/Phrozenn1/tether-vscode)).
 
 ---
 
 ## 🌟 Core Features & Strategies
 
-1. **Flowmodoro Engine (Count Up):**
-   - Counts **UP** during focus so you never get interrupted mid-thought.
-   - Automatically calculates your earned break based on customizable ratios (e.g. **45:15**).
-   - Dynamic visual indicators: 🟢 **Green** glowing aura in Focus, 🔴 **Red** in Break, 🔵 **Blue** in Ready/Idle.
-   - Desktop notifications via native OS notification centers.
+### 1. ⏱️ Flowmodoro Engine (Count-Up Focus)
+Traditional Pomodoro (25m work / 5m break) forcibly breaks deep hyperfocus mid-thought, destroying fragile context that took 40 minutes to assemble. Tether counts **UP**:
+- Work uninterrupted as long as your natural flow state lasts.
+- Automatically earns proportional breaks based on your chosen ratio (standard **45:15** $\rightarrow$ 3:1).
+- **Banked Break Time:** Returning early from a break saves your unspent rest time to your bank and resumes your focus session seamlessly.
 
-2. **Bidirectional Neovim Sync ([`tether.nvim`](https://github.com/Phrozenn1/tether.nvim)):**
-   - Shared atomic state (`~/.local/state/tether/flow_state.json`).
-   - Starting, pausing, or breaking in Neovim updates Desktop in real time, and vice versa.
-   - Synchronizes break ratios and session epochs dynamically across restarts.
+### 2. ⚡ "Just 5 Minutes" Micro-Start (Friction Melt)
+Overcome *task-initiation paralysis* by lowering the psychological barrier to entry to just 5 minutes:
+- Starts a warm amber countdown from 05:00.
+- Gentle audio chime signals completion: *"5 minutes completed! 🎉 You are in motion."*
+- **Seamless Auto-Transition:** If you keep working, Tether automatically glides into regular Flowmodoro counting up from 05:00.
+- Stopping before 5 minutes gives a kind, shame-free reset: *"Good attempt! Totally fine to stop here."*
 
-3. **60-Second RAM-Dump Save-State:**
-   - 3 rapid fields: `[NÅ]`, `[STATUS]`, `[NESTE STEG]`.
-   - Freezes working memory before taking a break to prevent resumption paralysis.
-   - Displays your previous save-state card on return.
+### 3. 🎧 Procedural Offline Focus Soundscapes
+Scientifically proven auditory masking generated mathematically directly in Rust via `rodio` with **zero network requests, zero external audio files, and <0.1% CPU usage**:
+- **Brown Noise:** Deep, soothing, low-frequency rumble. Ideal for chronic tinnitus masking and heavy concentration.
+- **Pink Noise:** Balanced, waterfall-like spectrum for steady mental focus.
+- **Gentle Rain:** Soft natural rhythm to ease anxiety and mental restlessness.
+- **In-Row Controls on Flow Tab:** Instant soundscape dropdown, alternating play/pause button (`▶` / `⏸`), and speaker button opening a flush-right volume popover.
+- **Relative Gain / Volume:** Stream gain is designed to play quietly alongside your background music or podcasts without taking over your system master volume.
+- **Auto-Play:** Automatically starts playback when entering focus and smoothly fades down when taking a break.
 
-4. **Side-Quest / Impulse Buffer:**
-   - Single-line capture for intrusive thoughts (*"Pay bill"*, *"Check library"*).
-   - Offloads working memory without context-switching.
-   - Native system file dialog (`rfd` / XDG Portal) to pick storage destination.
-   - Multi-format support: Markdown `- [ ]`, Markdown `•`, Todo.txt, and JSON.
+### 4. 📥 Interactive Impulse Buffer & Retention Pruning
+Protect your flow when intrusive side-thoughts strike (*"Pay electricity bill"*, *"Check Rust docs"*, *"Refactor database"*):
+- Capture thoughts in seconds without opening a browser or switching windows.
+- **Interactive Checkboxes:** Check off tasks directly in the desktop app; Tether syncs checkboxes live to your markdown file (`- [ ]` $\leftrightarrow$ `- [x]`).
+- **Configurable Retention Cleanup:** Keep your impulse list clean without clutter. Choose when completed tasks are pruned:
+  - *After 1 hour*, *After 24 hours*, *After 7 days*, or *Keep forever*.
 
-5. **Mini-HUD with Persistent Coordinates:**
-   - Sleek pill HUD mode with live pulsating status dot, drag anchor, and time display.
-   - Automatically remembers dragged window positions across restarts and expand/shrink cycles on Hyprland/Wayland.
-   - Monitor locking support (pin HUD to specific displays or auto-detect).
+### 5. ⚓ Context Anchor & 1-Click Code Resumption
+Prevents "working memory amnesia" after taking breaks, eating lunch, or returning the next morning:
+- Automatically snapshots your active Git repository, branch, file, line number, column, and last note.
+- Displays a dedicated **Context Anchor Card** on the Flow tab.
+- **🚀 [Resume in Neovim / VS Code]:** 1 click focuses or launches your editor right where you left off.
 
-6. **Theming & Localization:**
-   - Automatic OS / Omarchy live theme detection.
-   - Curated presets: *Ethereal*, *Catppuccin Mocha*, *Tokyo Night*, *Nord*, *Gruvbox Dark*, *Cyberpunk Neon*, and *Rosé Pine*.
-   - Multilingual UI: English and Norwegian (Norsk).
+### 6. 🌐 Platform-Agnostic Editor Focus Tracking
+Unlike window-manager-specific tools, Tether uses zero-privilege atomic state synchronization (`editor_focus.json`):
+- Both `tether.nvim` and `tether-vscode` report focus changes (`FocusGained` / `FocusLost` / `onDidChangeWindowState`).
+- Tether Desktop detects active editor focus on **any desktop environment** (GNOME, KDE Plasma, Sway, Hyprland, X11, macOS, Windows).
+- **Auto-Minimize / Tray:** Configure Tether to automatically minimize to Tray or shrink to Mini-HUD whenever you are actively typing in your code editor.
 
-7. **Yak-Shaving Realism Checks 🪒:**
-   - Sarcastic reality checks when you catch yourself tweaking trivial details instead of doing the actual work.
+### 7. 🔥 Momentum & Flyt-XP (Shame-Free Progression)
+- Replaces punishing streak counters with **positive weekly momentum**:
+  - *Level / Tier progression*, *hours logged*, *impulses parked*.
+- No red crosses, no resets, and no Rejection Sensitive Dysphoria (RSD) if you take a weekend or sick day off.
+
+### 8. 🗕 Mini-HUD & Content-Driven Window Fitting
+- **Mini-HUD Mode:** Sleek, always-on-top pill widget with live status badge, timer, and quick controls.
+- **Dynamic Content Sizing:** The main window dynamically sizes itself to fit the Flow tab content without requiring any vertical scrolling to see your momentum stats.
 
 ---
 
 ## ⌨️ Shortcuts
 
-- **`Space`**: Toggle Flowmodoro (Start Focus $\rightarrow$ Switch to Break $\rightarrow$ Reset).
-- **`Escape`**: Shrink full dashboard back to Mini-HUD.
-- **`Enter`**: Submit Side-Quest impulse.
+| Shortcut | Action |
+| :--- | :--- |
+| **`Space`** | Toggle Flowmodoro (Start Focus $\rightarrow$ Switch to Break $\rightarrow$ Reset) |
+| **`Ctrl` + `1`–`4`** | Switch tabs (Flyt, RAM-dump, Impulser, Oppsett) |
+| **`Escape`** | Shrink full dashboard back to Mini-HUD |
+| **`Enter`** | Submit side-quest impulse or save RAM-dump |
 
 ---
 
 ## 🛠️ Building & Cross-Platform Installation
 
 ### Prerequisites
-- [Rust toolchain](https://rustup.rs/) (`cargo` and `rustc`).
+- [Rust toolchain](https://rustup.rs/) (edition 2021).
+- **GTK4** (`libgtk-4-dev`) and **Libadwaita** (`libadwaita-1-dev` $\ge$ 1.5).
 
-### Linux
+### Arch Linux (PKGBUILD)
 ```bash
-cargo build --release
-# Installs to ~/.local/bin/tether:
-cp target/release/tether-desktop ~/.local/bin/tether
+cd packaging/arch
+makepkg -si
 ```
 
-### macOS
+### Ubuntu / Debian (.deb)
 ```bash
 cargo build --release
-# Native Cocoa / winit backend — works on Intel & Apple Silicon
+cargo deb
+sudo dpkg -i target/debian/tether_*.deb
 ```
 
-### Windows
+### Fedora / RHEL (.rpm)
 ```bash
 cargo build --release
-# Native Win32 / DirectX / OpenGL backend via eframe
+sudo dnf install -y target/rpm/tether-*.rpm
+```
+
+### macOS (.dmg)
+```bash
+brew install gtk4 libadwaita pkg-config
+cargo build --release
+```
+
+### Windows (.exe / MSYS2)
+```bash
+pacman -S mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita
+cargo build --release
 ```
 
 ---
 
-## 📁 Shared State
-Tether stores shared state and markdown logs in OS standard directories:
-- **Linux:** `~/.local/state/tether/` (shared with `tether.nvim`!)
+## 📁 Shared State Directories
+
+Tether stores shared state and markdown logs in standard OS directories:
+- **Linux:** `~/.local/state/tether/` (shared with `tether.nvim` and `tether-vscode`!)
 - **macOS:** `~/Library/Application Support/tether/`
-- **Windows:** `%APPDATA%\tether\`
+- **Windows:** `%LOCALAPPDATA%\tether\`
+
+Key state files:
+- `flow_state.json`: Real-time bi-directional timer synchronization.
+- `editor_focus.json`: Zero-privilege platform-agnostic editor focus state.
+- `context_anchor.json`: Code position, git branch, and save-state anchor.
+- `impulses.md`: Parsed interactive markdown task checklist.
+
+---
+
+## 🧩 Companion Extensions
+
+- **Neovim:** [`tether.nvim`](https://github.com/Phrozenn1/tether.nvim) — Lua floating HUD, micro-start, yak-alarm, and context anchor.
+- **VS Code:** [`tether-vscode`](https://github.com/Phrozenn1/tether-vscode) — Status bar integration, flow sync, and rapid RAM-dump commands.
 
 ---
 
 ## 📄 License
-MIT © Kim Bech
+MIT © Kim Bech <kim@phrozenn.no>

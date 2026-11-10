@@ -1,6 +1,6 @@
 # Maintainer: Phrozenn <kim@phrozenn.no>
 pkgname=tether
-pkgver=1.0.1
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="ADHD Flowmodoro & Brain-Dump Companion for developers"
 arch=('x86_64')

@@ -24,6 +24,19 @@
     <binary>tether</binary>
   </provides>
   <releases>
+    <release version="1.1.0" date="2026-11-10">
+      <description>
+        <p>Feature release with focus soundscapes, volume popover, interactive checkboxes, retention cleanup, and platform-agnostic focus tracking.</p>
+        <ul>
+          <li>Procedural offline focus soundscapes (Brown noise, Pink noise, Gentle rain) with auto-play and fade-down.</li>
+          <li>Interactive in-row sound controls with play/pause toggle and flush-right volume popover.</li>
+          <li>Interactive markdown checkboxes for captured impulses with customizable retention pruning.</li>
+          <li>Platform-agnostic editor focus synchronization across Neovim, VS Code, and desktop.</li>
+          <li>Dynamic content-driven window sizing without vertical scrolling on the Flow tab.</li>
+          <li>Gentle focus chime and break gong notifications.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.1" date="2026-11-10">
       <description>
         <p>Added pause banking on early break termination, per-editor minimize settings, and auto-maximize on break.</p>
