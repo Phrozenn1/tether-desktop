@@ -163,7 +163,7 @@ impl Flowmodoro {
         self.broadcast_state();
 
         notify(
-            "⚡ Mikro-start (5 min)",
+            "Mikrostart (5 min)",
             "Terskelen er senket! Jobb uforstyrret i 5 minutter – du har lov til å stoppe etterpå.",
         );
     }
@@ -171,7 +171,7 @@ impl Flowmodoro {
     pub fn cancel_micro_start(&mut self) {
         self.reset();
         notify(
-            "Bra forsøk! 🤍",
+            "Bra forsøk!",
             "Helt greit å stoppe her. Null skyldfølelse – prøv igjen senere når du er klar.",
         );
     }
@@ -187,7 +187,7 @@ impl Flowmodoro {
         self.last_synced_seq = self.seq;
         self.broadcast_state();
 
-        notify("Fokusøkt startet 🚀", "Jobb uforstyrret så lenge du har god flyt!");
+        notify("Fokusøkt startet", "Jobb uforstyrret så lenge du har god flyt!");
     }
 
     pub fn calculate_break_time(&self) -> u64 {
@@ -226,7 +226,7 @@ impl Flowmodoro {
         self.broadcast_state();
 
         notify(
-            "Fokusøkt fullført! ☕",
+            "Fokusøkt fullført",
             &format!(
                 "Fokus: {}.\nOpptjent pause ({}:{}): {}.\nHusk en 60s RAM-dump!",
                 focus_fmt, self.focus_ratio, self.break_ratio, break_fmt
@@ -262,7 +262,7 @@ impl Flowmodoro {
         let focus_fmt = format_time(self.elapsed_focus_secs);
         let banked_fmt = format_time(self.banked_break_secs);
         notify(
-            "Fokus gjenopptatt 🚀",
+            "Fokus gjenopptatt",
             &format!(
                 "Fortsetter fokusøkt fra {}.\nDu har {} pause spart til gode!",
                 focus_fmt, banked_fmt
@@ -325,7 +325,7 @@ impl Flowmodoro {
                     self.last_synced_seq = self.seq;
                     self.broadcast_state();
                     notify(
-                        "5 minutter fullført! ⚡🎉",
+                        "5 minutter fullført",
                         "Terskelen er brutt og du er i gang! Fortsett flyten så lenge det føles bra.",
                     );
                 } else {
@@ -356,7 +356,7 @@ impl Flowmodoro {
                     self.last_synced_seq = self.seq;
                     self.broadcast_state();
                     notify(
-                        "Pausen er over! 🚀",
+                        "Pausen er over",
                         "Hjernen er uthvilt og klar for neste fokusøkt.",
                     );
                 }

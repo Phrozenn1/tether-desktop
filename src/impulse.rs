@@ -36,8 +36,8 @@ impl ImpulseState {
         self.items = storage::load_impulses_with_settings(settings);
         self.input_text.clear();
         let msg = match settings.language.resolve() {
-            storage::Language::Norwegian => "Strøtanke forankret! ⚓ Tilbake til flyten.",
-            storage::Language::English => "Side-quest captured! ⚓ Return to flow.",
+            storage::Language::Norwegian => "Strøtanke forankret. Tilbake til flyten.",
+            storage::Language::English => "Side-quest captured. Return to flow.",
         };
         self.feedback = Some(msg.to_string());
         Ok(())
@@ -48,8 +48,8 @@ impl ImpulseState {
             self.items.remove(index);
             storage::save_all_impulses_with_settings(settings, &self.items)?;
             let msg = match settings.language.resolve() {
-                storage::Language::Norwegian => "Oppgave fullført og fjernet! ✓",
-                storage::Language::English => "Task completed and removed! ✓",
+                storage::Language::Norwegian => "Oppgave fullført og fjernet.",
+                storage::Language::English => "Task completed and removed.",
             };
             self.feedback = Some(msg.to_string());
         }

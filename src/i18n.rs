@@ -8,7 +8,7 @@ impl Strings {
     }
 
     pub fn tag_micro(_lang: Language) -> &'static str {
-        "⚡ 5 MIN"
+        "5 MIN"
     }
 
     pub fn tag_break(lang: Language) -> &'static str {
@@ -27,8 +27,8 @@ impl Strings {
 
     pub fn btn_micro_start(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "⚡ 5m Mikro-start",
-            Language::English => "⚡ 5m Micro-start",
+            Language::Norwegian => "5m mikrostart",
+            Language::English => "5m Micro-start",
         }
     }
 
@@ -69,15 +69,15 @@ impl Strings {
 
     pub fn lbl_context_anchor(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "⚓ Kontekst-anker (Hvor slapp du?)",
-            Language::English => "⚓ Context Anchor (Resume Flow)",
+            Language::Norwegian => "Kontekstanker",
+            Language::English => "Context Anchor",
         }
     }
 
     pub fn btn_resume_neovim(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "🚀 Gjenoppta i Neovim",
-            Language::English => "🚀 Resume in Neovim",
+            Language::Norwegian => "Gjenoppta i Neovim",
+            Language::English => "Resume in Neovim",
         }
     }
 
@@ -90,8 +90,8 @@ impl Strings {
 
     pub fn lbl_momentum_title(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "🔥 Momentum & Flyt-XP",
-            Language::English => "🔥 Momentum & Flow XP",
+            Language::Norwegian => "Momentum",
+            Language::English => "Momentum",
         }
     }
 
@@ -118,8 +118,8 @@ impl Strings {
 
     pub fn lbl_no_shame_motto(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "Ingen tapte streaks her – hvert minutt du legger ned teller! ⚡",
-            Language::English => "No broken streaks here – every single minute counts! ⚡",
+            Language::Norwegian => "Ingen tapte streaks her – hvert minutt du legger ned teller.",
+            Language::English => "No broken streaks here – every single minute counts.",
         }
     }
 
@@ -146,41 +146,41 @@ impl Strings {
 
     pub fn context_menu_open(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "⛶ Åpne fullt panel",
-            Language::English => "⛶ Open full dashboard",
+            Language::Norwegian => "Åpne fullt panel",
+            Language::English => "Open full dashboard",
         }
     }
 
     pub fn context_menu_reset(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "⏹ Nullstill økt",
-            Language::English => "⏹ Reset session",
+            Language::Norwegian => "Nullstill økt",
+            Language::English => "Reset session",
         }
     }
 
     pub fn context_menu_quit(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "✕ Avslutt Tether",
-            Language::English => "✕ Quit Tether",
+            Language::Norwegian => "Avslutt Tether",
+            Language::English => "Quit Tether",
         }
     }
 
-    pub fn tab_flowmodoro(_lang: Language) -> &'static str { "⏱ Flowmodoro" }
-    pub fn tab_ramdump(_lang: Language) -> &'static str { "🧠 RAM-Dump" }
-    pub fn tab_sidequests(_lang: Language) -> &'static str { "💡 Side-Quests" }
-    pub fn tab_yak(_lang: Language) -> &'static str { "🪒 Yak-Alarm" }
+    pub fn tab_flowmodoro(_lang: Language) -> &'static str { "Flowmodoro" }
+    pub fn tab_ramdump(_lang: Language) -> &'static str { "RAM-dump" }
+    pub fn tab_sidequests(_lang: Language) -> &'static str { "Impulser" }
+    pub fn tab_yak(_lang: Language) -> &'static str { "Yak-alarm" }
     pub fn tab_settings(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "⚙ Innstillinger",
-            Language::English => "⚙ Settings",
+            Language::Norwegian => "Innstillinger",
+            Language::English => "Settings",
         }
     }
 
-    pub fn mini_hud_btn(_lang: Language) -> &'static str { "🗕 Mini-HUD" }
+    pub fn mini_hud_btn(_lang: Language) -> &'static str { "Mini-HUD" }
     pub fn always_on_top(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "📌 Alltid øverst",
-            Language::English => "📌 Always on top",
+            Language::Norwegian => "Alltid øverst",
+            Language::English => "Always on top",
         }
     }
 
@@ -228,29 +228,29 @@ impl Strings {
 
     pub fn btn_start_focus(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "▶ Start Flytsone",
-            Language::English => "▶ Start Flow State",
+            Language::Norwegian => "Start fokus",
+            Language::English => "Start Focus",
         }
     }
 
     pub fn btn_take_break(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "☕ Ta Pause",
-            Language::English => "☕ Take Break",
+            Language::Norwegian => "Ta pause",
+            Language::English => "Take Break",
         }
     }
 
     pub fn btn_end_break(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "⏹ Avslutt Pause",
-            Language::English => "⏹ End Break",
+            Language::Norwegian => "Avslutt pause",
+            Language::English => "End Break",
         }
     }
 
     pub fn btn_reset(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "↺ Nullstill",
-            Language::English => "↺ Reset",
+            Language::Norwegian => "Nullstill",
+            Language::English => "Reset",
         }
     }
 
@@ -278,8 +278,8 @@ impl Strings {
     // RAM-dump
     pub fn ramdump_heading(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "🧠 60-sekunders RAM-Dump",
-            Language::English => "🧠 60-Second RAM-Dump",
+            Language::Norwegian => "60-sekunders RAM-dump",
+            Language::English => "60-Second RAM-Dump",
         }
     }
 
@@ -299,8 +299,8 @@ impl Strings {
 
     pub fn field_now_hint(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "f.eks. Skriver ferdig sql-migrering",
-            Language::English => "e.g. Writing SQL migration script",
+            Language::Norwegian => "f.eks. Skriver ferdig rapport",
+            Language::English => "e.g. Finishing project report",
         }
     }
 
@@ -313,29 +313,29 @@ impl Strings {
 
     pub fn field_status_hint(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "f.eks. Må legge til foreign key constraint",
-            Language::English => "e.g. Need to add foreign key constraint",
+            Language::Norwegian => "f.eks. Må legge til sammendrag",
+            Language::English => "e.g. Need to add summary section",
         }
     }
 
     pub fn field_next(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "[NESTE MEKANISKE STEG] Aller første tastetrykk ved retur:",
+            Language::Norwegian => "[NESTE MEKANISKE STEG] Aller første handling ved retur:",
             Language::English => "[NEXT STEP] Very first micro-action upon return:",
         }
     }
 
     pub fn field_next_hint(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "f.eks. Kjør 'cargo test --lib'",
-            Language::English => "e.g. Run 'cargo test --lib'",
+            Language::Norwegian => "f.eks. Åpne kapittel 3",
+            Language::English => "e.g. Open chapter 3",
         }
     }
 
     pub fn btn_save_ramdump(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "💾 Forankre Tilstand",
-            Language::English => "💾 Anchor State",
+            Language::Norwegian => "Lagre tilstand",
+            Language::English => "Anchor State",
         }
     }
 
@@ -370,8 +370,8 @@ impl Strings {
     // Side-Quests
     pub fn sidequests_heading(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "💡 Side-Quest & Impulsbuffer",
-            Language::English => "💡 Side-Quest & Impulse Buffer",
+            Language::Norwegian => "Impulsbuffer",
+            Language::English => "Impulse Buffer",
         }
     }
 
@@ -405,16 +405,16 @@ impl Strings {
 
     pub fn no_impulses(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "Ingen lagrede impulser enda. Hodet ditt er rent! 🧘",
-            Language::English => "No saved impulses yet. Your mind is clear! 🧘",
+            Language::Norwegian => "Ingen lagrede impulser enda. Hodet ditt er rent.",
+            Language::English => "No saved impulses yet. Your mind is clear.",
         }
     }
 
     // Yak-Shaving
     pub fn yak_heading(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "🪒 Yak-Shaving & Kaninhull-sjekk",
-            Language::English => "🪒 Yak-Shaving & Rabbit Hole Check",
+            Language::Norwegian => "Kaninhullsjekk & Yak-shaving",
+            Language::English => "Rabbit Hole Check & Yak-Shaving",
         }
     }
 
@@ -427,15 +427,15 @@ impl Strings {
 
     pub fn btn_next_jab(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "🎲 Nytt Stikk",
-            Language::English => "🎲 New Jab",
+            Language::Norwegian => "Nytt stikk",
+            Language::English => "New Reality Check",
         }
     }
 
     pub fn btn_back_to_flow(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "🚀 Tilbake til flyten!",
-            Language::English => "🚀 Return to flow!",
+            Language::Norwegian => "Tilbake til flyten",
+            Language::English => "Return to flow",
         }
     }
 
@@ -478,14 +478,14 @@ impl Strings {
     // Settings
     pub fn settings_heading(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "⚙ Innstillinger & Integrasjon",
-            Language::English => "⚙ Settings & Integrations",
+            Language::Norwegian => "Innstillinger & integrasjon",
+            Language::English => "Settings & Integrations",
         }
     }
 
     pub fn sec_general(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "Generelt & Fargetema",
+            Language::Norwegian => "Generelt & fargetema",
             Language::English => "General & Theme",
         }
     }
@@ -503,15 +503,15 @@ impl Strings {
 
     pub fn sec_flowmodoro(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "Flowmodoro Forholdstall",
+            Language::Norwegian => "Flowmodoro forholdstall",
             Language::English => "Flowmodoro Ratio",
         }
     }
 
     pub fn sec_sidequests(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "Side-Quests (Impulsbuffer) Lagring",
-            Language::English => "Side-Quests Storage",
+            Language::Norwegian => "Impulsbuffer lagring",
+            Language::English => "Impulse Buffer Storage",
         }
     }
 
@@ -524,8 +524,8 @@ impl Strings {
 
     pub fn btn_browse(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "📁 Bla gjennom...",
-            Language::English => "📁 Browse...",
+            Language::Norwegian => "Bla gjennom...",
+            Language::English => "Browse...",
         }
     }
 
@@ -538,29 +538,29 @@ impl Strings {
 
     pub fn sec_integration(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "Neovim & Desktop Samspill",
-            Language::English => "Neovim & Desktop Companion",
+            Language::Norwegian => "Editor og skrivebordsintegrasjon",
+            Language::English => "Editor & Desktop Companion",
         }
     }
 
     pub fn nvim_status_online(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "🟢 Neovim kjører nå",
-            Language::English => "🟢 Neovim is running",
+            Language::Norwegian => "Neovim kjører nå",
+            Language::English => "Neovim is running",
         }
     }
 
     pub fn nvim_status_offline(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "○ Neovim ikke oppdaget",
-            Language::English => "○ Neovim offline",
+            Language::Norwegian => "Neovim ikke oppdaget",
+            Language::English => "Neovim offline",
         }
     }
 
     pub fn btn_open_nvim(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "🚀 Åpne / Gå til Neovim",
-            Language::English => "🚀 Open / Focus Neovim",
+            Language::Norwegian => "Gå til Neovim",
+            Language::English => "Open / Focus Neovim",
         }
     }
 
@@ -580,8 +580,8 @@ impl Strings {
 
     pub fn sec_monitor(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "Skjerm & Plassering (Flerskjermsoppsett)",
-            Language::English => "Display & Placement (Multi-monitor)",
+            Language::Norwegian => "Skjerm & plassering",
+            Language::English => "Display & Placement",
         }
     }
 
@@ -594,8 +594,8 @@ impl Strings {
 
     pub fn opt_auto_monitor(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "Auto (Følg aktiv/fokusert skjerm)",
-            Language::English => "Auto (Follow active/focused display)",
+            Language::Norwegian => "Auto (Følg aktiv skjerm)",
+            Language::English => "Auto (Follow active display)",
         }
     }
 
@@ -608,28 +608,28 @@ impl Strings {
 
     pub fn btn_move_now(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "🎯 Flytt til valgt skjerm nå",
-            Language::English => "🎯 Move to selected display now",
+            Language::Norwegian => "Flytt til valgt skjerm nå",
+            Language::English => "Move to selected display now",
         }
     }
 
     pub fn lbl_saved_pos(lang: Language, x: i32, y: i32) -> String {
         match lang {
-            Language::Norwegian => format!("📌 Husket vindusposisjon: X={}, Y={}", x, y),
-            Language::English => format!("📌 Remembered window position: X={}, Y={}", x, y),
+            Language::Norwegian => format!("Husket vindusposisjon: X={}, Y={}", x, y),
+            Language::English => format!("Remembered window position: X={}, Y={}", x, y),
         }
     }
 
     pub fn btn_reset_pos(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "↺ Nullstill posisjon til standard hjørne",
-            Language::English => "↺ Reset position to default corner",
+            Language::Norwegian => "Nullstill posisjon til standard hjørne",
+            Language::English => "Reset position to default corner",
         }
     }
 
     pub fn sec_notifications(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "Varsler & Påminnelser",
+            Language::Norwegian => "Varsler & påminnelser",
             Language::English => "Notifications & Reminders",
         }
     }
@@ -650,15 +650,15 @@ impl Strings {
 
     pub fn btn_save(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "💾 Lagre Innstillinger",
-            Language::English => "💾 Save Settings",
+            Language::Norwegian => "Lagre innstillinger",
+            Language::English => "Save Settings",
         }
     }
 
     pub fn save_success(lang: Language) -> &'static str {
         match lang {
-            Language::Norwegian => "Innstillinger lagret til ~/.config/tether/config.json! ✓",
-            Language::English => "Settings saved to ~/.config/tether/config.json! ✓",
+            Language::Norwegian => "Innstillinger lagret til ~/.config/tether/config.json.",
+            Language::English => "Settings saved to ~/.config/tether/config.json.",
         }
     }
 }

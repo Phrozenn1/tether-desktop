@@ -1327,19 +1327,19 @@ pub enum MomentumTier {
 impl MomentumTier {
     pub fn title_no(&self) -> &'static str {
         match self {
-            MomentumTier::Spark => "⚡ Gnist",
-            MomentumTier::FlowRider => "🌊 Flyt-rytter",
-            MomentumTier::DeepDiver => "🚀 Dypdykker",
-            MomentumTier::CodeWizard => "🧙‍♂️ Flyt-mester",
+            MomentumTier::Spark => "Gnist",
+            MomentumTier::FlowRider => "Flytrytter",
+            MomentumTier::DeepDiver => "Dypdykker",
+            MomentumTier::CodeWizard => "Flytmester",
         }
     }
 
     pub fn title_en(&self) -> &'static str {
         match self {
-            MomentumTier::Spark => "⚡ Spark",
-            MomentumTier::FlowRider => "🌊 Flow Rider",
-            MomentumTier::DeepDiver => "🚀 Deep Diver",
-            MomentumTier::CodeWizard => "🧙‍♂️ Flow Master",
+            MomentumTier::Spark => "Spark",
+            MomentumTier::FlowRider => "Flow Rider",
+            MomentumTier::DeepDiver => "Deep Diver",
+            MomentumTier::CodeWizard => "Flow Master",
         }
     }
 

@@ -123,6 +123,7 @@ impl TetherUi {
     pub fn build(app: &Application) -> Rc<Self> {
         let settings = storage::load_settings();
         let initial_settings = settings.clone();
+        let initial_lang = initial_settings.language.resolve();
         let mut flow = Flowmodoro::new();
         flow.focus_ratio = settings.ratio_focus;
         flow.break_ratio = settings.ratio_break;
@@ -273,14 +274,20 @@ impl TetherUi {
         btn_row.set_margin_top(12);
 
         let main_action_btn = gtk4::Button::builder()
-            .label("▶ Start Fokus")
+            .label(match initial_lang {
+                Language::Norwegian => "Start fokus",
+                _ => "Start Focus",
+            })
             .css_classes(["pill", "suggested-action"])
             .width_request(140)
             .build();
         btn_row.append(&main_action_btn);
 
         let micro_btn = gtk4::Button::builder()
-            .label("⚡ 5m Mikro-start")
+            .label(match initial_lang {
+                Language::Norwegian => "5m mikrostart",
+                _ => "5m Micro-start",
+            })
             .tooltip_text("Start en uforpliktende 5-minutters økt for å bryte oppstartssperren")
             .css_classes(["pill"])
             .width_request(140)
@@ -325,11 +332,25 @@ impl TetherUi {
 
         // Soundscape Control (between Hero and Context Anchor)
         let flow_sound_group = PreferencesGroup::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Fokuslyd",
+                _ => "Focus Soundscape",
+            })
+            .description(match initial_lang {
+                Language::Norwegian => "Akustisk støymaskering og beroligende naturlyder",
+                _ => "Acoustic noise masking and soothing nature soundscapes",
+            })
             .build();
 
         let flow_sound_row = ActionRow::builder()
-            .title("Fokus-lyd")
-            .subtitle("Prosedyrisk støy for dyp konsentrasjon")
+            .title(match initial_lang {
+                Language::Norwegian => "Lydkulisse",
+                _ => "Soundscape",
+            })
+            .subtitle(match initial_lang {
+                Language::Norwegian => "Spilles automatisk av under fokus",
+                _ => "Plays automatically during focus",
+            })
             .build();
 
         let sound_icon = gtk4::Image::from_icon_name("audio-x-generic-symbolic");
@@ -483,8 +504,14 @@ impl TetherUi {
 
         // Context Anchor Group
         let anchor_group = PreferencesGroup::builder()
-            .title("⚓ Kontekst-anker")
-            .description("Husker nøyaktig hvor du slapp i koden eller prosjektet")
+            .title(match initial_lang {
+                Language::Norwegian => "Kontekstanker",
+                _ => "Context Anchor",
+            })
+            .description(match initial_lang {
+                Language::Norwegian => "Husker nøyaktig hvor du slapp i koden eller prosjektet",
+                _ => "Remembers exactly where you left off in code or project",
+            })
             .build();
 
         let anchor_row = ActionRow::builder()
@@ -492,7 +519,10 @@ impl TetherUi {
             .subtitle("Åpne et prosjekt for å forankre flyten")
             .build();
         let anchor_resume_btn = gtk4::Button::builder()
-            .label("Gjenoppta 🚀")
+            .label(match initial_lang {
+                Language::Norwegian => "Gjenoppta",
+                _ => "Resume",
+            })
             .css_classes(["suggested-action", "pill"])
             .valign(gtk4::Align::Center)
             .build();
@@ -503,12 +533,18 @@ impl TetherUi {
 
         // Momentum / XP Group
         let momentum_group = PreferencesGroup::builder()
-            .title("🔥 Momentum og Flyt-XP")
-            .description("Positiv framdrift – ingen brutte streaks")
+            .title(match initial_lang {
+                Language::Norwegian => "Momentum og flyt-XP",
+                _ => "Momentum and Flow XP",
+            })
+            .description(match initial_lang {
+                Language::Norwegian => "Positiv framdrift – ingen brutte streaks",
+                _ => "Positive progression – no broken streaks",
+            })
             .build();
 
         let momentum_tier_row = ActionRow::builder()
-            .title("⚡ Gnist (0 XP)")
+            .title("Gnist (0 XP)")
             .subtitle("Ny uke, blanke ark! Ta en mikro-start for å tenne gnisten")
             .build();
         momentum_group.add(&momentum_tier_row);
@@ -596,7 +632,10 @@ impl TetherUi {
         ram_group.add(&ram_next_entry);
 
         let save_ram_btn = gtk4::Button::builder()
-            .label("Lagre RAM-Dump 💾")
+            .label(match initial_lang {
+                Language::Norwegian => "Lagre arbeidsminne",
+                _ => "Save Working Memory",
+            })
             .css_classes(["pill", "suggested-action"])
             .halign(gtk4::Align::End)
             .margin_top(12)
@@ -855,7 +894,7 @@ impl TetherUi {
             .subtitle(&ext_sub)
             .build();
         let install_ext_btn = gtk4::Button::builder()
-            .label(if is_ext_installed { "Reinstaller ⚡" } else { "Installer utvidelse ⚡" })
+            .label(if is_ext_installed { "Reinstaller" } else { "Installer utvidelse" })
             .valign(gtk4::Align::Center)
             .build();
         if !is_ext_installed {
@@ -1003,9 +1042,10 @@ impl TetherUi {
         mini_hud_box.set_margin_end(10);
 
         let mini_anchor = gtk4::Label::builder()
-            .label("⚓")
+            .label("TETHER")
             .tooltip_text("Tether Mini-HUD")
             .valign(gtk4::Align::Center)
+            .css_classes(["heading", "dim-label"])
             .build();
         mini_hud_box.append(&mini_anchor);
 
@@ -1033,7 +1073,7 @@ impl TetherUi {
 
         let mini_micro_btn = gtk4::Button::builder()
             .icon_name("weather-storm-symbolic")
-            .tooltip_text("⚡ 5m Mikro-start")
+            .tooltip_text("5m mikrostart")
             .valign(gtk4::Align::Center)
             .css_classes(["flat"])
             .build();
@@ -1490,10 +1530,10 @@ impl TetherUi {
                         let (installed, sub) = crate::editor::check_nvim_plugin_status(st.settings.nvim_plugin_manager);
                         ext_status_row_clone.set_subtitle(&sub);
                         if installed {
-                            install_ext_btn_clone.set_label("Reinstaller ⚡");
+                            install_ext_btn_clone.set_label("Reinstaller");
                             install_ext_btn_clone.remove_css_class("suggested-action");
                         } else {
-                            install_ext_btn_clone.set_label("Installer utvidelse ⚡");
+                            install_ext_btn_clone.set_label("Installer utvidelse");
                             install_ext_btn_clone.add_css_class("suggested-action");
                         }
                     } else if resolved == EditorType::None {
@@ -1504,10 +1544,10 @@ impl TetherUi {
                         let (installed, sub) = crate::editor::check_vscode_extension_status(resolved);
                         ext_status_row_clone.set_subtitle(&sub);
                         if installed {
-                            install_ext_btn_clone.set_label("Reinstaller ⚡");
+                            install_ext_btn_clone.set_label("Reinstaller");
                             install_ext_btn_clone.remove_css_class("suggested-action");
                         } else {
-                            install_ext_btn_clone.set_label("Installer utvidelse ⚡");
+                            install_ext_btn_clone.set_label("Installer utvidelse");
                             install_ext_btn_clone.add_css_class("suggested-action");
                         }
                     }
@@ -1533,10 +1573,10 @@ impl TetherUi {
                 let (installed, sub) = crate::editor::check_nvim_plugin_status(mgr);
                 ext_status_row_clone.set_subtitle(&sub);
                 if installed {
-                    install_ext_btn_clone.set_label("Reinstaller ⚡");
+                    install_ext_btn_clone.set_label("Reinstaller");
                     install_ext_btn_clone.remove_css_class("suggested-action");
                 } else {
-                    install_ext_btn_clone.set_label("Installer utvidelse ⚡");
+                    install_ext_btn_clone.set_label("Installer utvidelse");
                     install_ext_btn_clone.add_css_class("suggested-action");
                 }
             });
@@ -1573,7 +1613,7 @@ impl TetherUi {
                         let (installed, sub) = crate::editor::check_nvim_plugin_status(mgr);
                         ext_status_row_clone.set_subtitle(&sub);
                         if installed {
-                            install_ext_btn_clone.set_label("Reinstaller ⚡");
+                            install_ext_btn_clone.set_label("Reinstaller");
                             install_ext_btn_clone.remove_css_class("suggested-action");
                         }
                     }
@@ -1829,9 +1869,9 @@ impl TetherUi {
             .body("Tether oppdaget at du koder i en integrert editor.\n\nVil du at Tether skal minimeres til system-tray (skjult i bakgrunnen) eller krympes til det lille Mini-HUD-vinduet i hjørnet?\n\n(Du kan alltids hente appen tilbake via tray-ikonet eller endre dette i Oppsett).")
             .build();
 
-        alert.add_response("tray", "Minimer til Tray 📥");
-        alert.add_response("mini", "Minimer til Mini-HUD 🗕");
-        alert.add_response("keep", "Behold åpen 🗖");
+        alert.add_response("tray", "Minimer til systemfelt");
+        alert.add_response("mini", "Minimer til Mini-HUD");
+        alert.add_response("keep", "Behold åpen");
 
         alert.set_response_appearance("tray", libadwaita::ResponseAppearance::Suggested);
         alert.set_default_response(Some("tray"));
@@ -2051,8 +2091,8 @@ impl TetherUi {
                     Strings::tag_micro(lang),
                     "badge-micro",
                     match lang {
-                        Language::Norwegian => format!("⚡ Bare 5 min for å bryte dørstokkmila ({} gjenstår). Null skyldfølelse!", rem),
-                        _ => format!("⚡ Just 5 mins to melt friction ({} left). Zero guilt!", rem),
+                        Language::Norwegian => format!("Bare 5 min for å bryte dørstokkmila ({} gjenstår). Null skyldfølelse!", rem),
+                        _ => format!("Just 5 mins to melt friction ({} left). Zero guilt!", rem),
                     },
                 )
             }
@@ -2128,8 +2168,8 @@ impl TetherUi {
             }
             FlowState::MicroStart => {
                 self.main_action_btn.set_label(match lang {
-                    Language::Norwegian => "✕ Avbryt (Null skyldfølelse)",
-                    _ => "✕ Cancel (Zero Guilt)",
+                    Language::Norwegian => "Avbryt (null skyldfølelse)",
+                    _ => "Cancel (Zero Guilt)",
                 });
                 self.main_action_btn.set_css_classes(&["pill", "destructive-action"]);
                 self.micro_btn.set_visible(false);
@@ -2172,7 +2212,10 @@ impl TetherUi {
             self.flow_audio_btn.set_icon_name("media-playback-start-symbolic");
             self.flow_audio_btn.set_tooltip_text(Some("Spill av fokus-lyd"));
             self.flow_audio_btn.remove_css_class("accent");
-            self.flow_sound_row.set_subtitle("Prosedyrisk støy for dyp konsentrasjon");
+            self.flow_sound_row.set_subtitle(match lang {
+                Language::Norwegian => "Spilles automatisk av under fokus",
+                _ => "Plays automatically during focus",
+            });
         }
 
         // Editor integration state & UI visibility
@@ -2194,14 +2237,14 @@ impl TetherUi {
             let badge = editor.short_badge();
             let is_running = editor.is_running();
             let conn_status = if is_running {
-                match lang { Language::Norwegian => "Tilkoblet 🟢", _ => "Connected 🟢" }
+                match lang { Language::Norwegian => "Tilkoblet", _ => "Connected" }
             } else {
-                match lang { Language::Norwegian => "Frakoblet 🔌", _ => "Offline 🔌" }
+                match lang { Language::Norwegian => "Frakoblet", _ => "Offline" }
             };
             if is_running {
-                self.editor_btn.set_label(&format!("🟢 {}", badge));
+                self.editor_btn.set_label(&format!("● {}", badge));
             } else {
-                self.editor_btn.set_label(&format!("🔌 {}", badge));
+                self.editor_btn.set_label(&format!("○ {}", badge));
             }
             self.editor_btn.set_tooltip_text(Some(&format!("{} ({})", editor.display_name(), conn_status)));
             self.helper_text.set_label(&match lang {
@@ -2220,13 +2263,13 @@ impl TetherUi {
 
         // Context Anchor update
         if let Some(anchor) = &st.anchor {
-            self.anchor_row.set_title(&format!("📁 {} [{}]", anchor.project_name, anchor.branch));
+            self.anchor_row.set_title(&format!("{} [{}]", anchor.project_name, anchor.branch));
             let note = if anchor.last_note.is_empty() {
                 String::new()
             } else {
-                format!("  •  💡 \"{}\"", anchor.last_note)
+                format!("  •  \"{}\"", anchor.last_note)
             };
-            self.anchor_row.set_subtitle(&format!("📄 {}:{}{}", anchor.relative_path, anchor.line, note));
+            self.anchor_row.set_subtitle(&format!("{}:{}{}", anchor.relative_path, anchor.line, note));
             self.anchor_resume_btn.set_label(&editor.resume_button_label(lang));
             self.anchor_resume_btn.set_visible(true);
         } else {
@@ -2367,7 +2410,7 @@ impl TetherUi {
             self.flow_audio_btn.set_icon_name("media-playback-start-symbolic");
             self.flow_audio_btn.set_tooltip_text(Some("Spill av fokus-lyd"));
             self.flow_audio_btn.remove_css_class("accent");
-            self.flow_sound_row.set_subtitle("Prosedyrisk støy for dyp konsentrasjon");
+            self.flow_sound_row.set_subtitle("Spilles automatisk av under fokus");
         }
     }
 
@@ -2406,7 +2449,7 @@ impl TetherUi {
 
         if items.is_empty() {
             let row = ActionRow::builder()
-                .title("Ingen registrerte impulser ennå 🎉")
+                .title("Ingen registrerte impulser ennå")
                 .subtitle("Skriv inn noe ovenfor for å parkere det med en gang.")
                 .build();
             self.impulses_list_box.append(&row);
@@ -2424,7 +2467,7 @@ impl TetherUi {
                     if let Some(comp) = &item.completed_at {
                         row.set_subtitle(&format!("Fullført {}", comp));
                     } else {
-                        row.set_subtitle("Fullført ✓");
+                        row.set_subtitle("Fullført");
                     }
                 } else {
                     row.set_title(&glib::markup_escape_text(&item.text));

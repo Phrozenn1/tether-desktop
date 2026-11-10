@@ -37,7 +37,7 @@ impl RamDumpState {
         self.now.clear();
         self.status.clear();
         self.next_step.clear();
-        self.feedback_message = Some("RAM-dump lagret og arbeidsminnet er frigjort! ⚓".to_string());
+        self.feedback_message = Some("RAM-dump lagret og arbeidsminnet er frigjort.".to_string());
         Ok(())
     }
 }

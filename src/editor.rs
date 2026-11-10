@@ -247,8 +247,8 @@ impl EditorType {
         };
 
         match lang {
-            crate::storage::Language::Norwegian => format!("Gjenoppta i {} 🚀", editor_name),
-            _ => format!("Resume in {} 🚀", editor_name),
+            crate::storage::Language::Norwegian => format!("Gjenoppta i {}", editor_name),
+            _ => format!("Resume in {}", editor_name),
         }
     }
 
@@ -414,17 +414,17 @@ pub fn check_nvim_plugin_status(manager: NvimPluginManager) -> (bool, String) {
         NvimPluginManager::Lazy => {
             let spec_path = home.join(".config/nvim/lua/plugins/tether.lua");
             if spec_path.exists() {
-                (true, "🟢 Installert (i ~/.config/nvim/lua/plugins/tether.lua)".to_string())
+                (true, "Installert (i ~/.config/nvim/lua/plugins/tether.lua)".to_string())
             } else {
-                (false, "⚠️ Ikke installert i plugins/tether.lua".to_string())
+                (false, "Ikke installert i plugins/tether.lua".to_string())
             }
         }
         NvimPluginManager::Packpath => {
             let pack_path = home.join(".local/share/nvim/site/pack/tether/start/tether.nvim");
             if pack_path.exists() {
-                (true, "🟢 Installert i packpath (~/.local/share/nvim/site/pack/...)".to_string())
+                (true, "Installert i packpath (~/.local/share/nvim/site/pack/...)".to_string())
             } else {
-                (false, "⚠️ Ikke installert i packpath".to_string())
+                (false, "Ikke installert i packpath".to_string())
             }
         }
         NvimPluginManager::VimPlug | NvimPluginManager::Manual => {
@@ -433,9 +433,9 @@ pub fn check_nvim_plugin_status(manager: NvimPluginManager) -> (bool, String) {
             let in_lua = std::fs::read_to_string(&init_lua).map(|s| s.contains("tether")).unwrap_or(false);
             let in_vim = std::fs::read_to_string(&init_vim).map(|s| s.contains("tether")).unwrap_or(false);
             if in_lua || in_vim {
-                (true, "🟢 Referanse funnet i init-fil".to_string())
+                (true, "Referanse funnet i init-fil".to_string())
             } else {
-                (false, "⚠️ Ingen referanse funnet i init-fil".to_string())
+                (false, "Ingen referanse funnet i init-fil".to_string())
             }
         }
     }
@@ -510,7 +510,7 @@ pub fn check_vscode_extension_status(editor: EditorType) -> (bool, String) {
             if out.status.success() {
                 let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
                 if text.contains("tether") {
-                    return (true, "🟢 Installert i editor".to_string());
+                    return (true, "Installert i editor".to_string());
                 }
             }
         }
@@ -524,14 +524,14 @@ pub fn check_vscode_extension_status(editor: EditorType) -> (bool, String) {
                 for entry in entries.flatten() {
                     let name = entry.file_name().to_string_lossy().to_lowercase();
                     if name.contains("tether") {
-                        return (true, "🟢 Installert i ~/.vscode/extensions/".to_string());
+                        return (true, "Installert i ~/.vscode/extensions/".to_string());
                     }
                 }
             }
         }
     }
 
-    (false, "⚠️ Ikke installert".to_string())
+    (false, "Ikke installert".to_string())
 }
 
 pub fn install_vscode_extension(editor: EditorType) -> Result<String, String> {
