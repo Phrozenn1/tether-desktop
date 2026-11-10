@@ -6,8 +6,8 @@ use gtk4::prelude::*;
 use libadwaita::glib;
 use libadwaita::prelude::*;
 use libadwaita::{
-    ActionRow, Application, ComboRow, EntryRow, HeaderBar,
-    PreferencesGroup, PreferencesPage, SpinRow, SwitchRow, ViewStack, ViewSwitcher,
+    ActionRow, Application, Clamp, ComboRow, EntryRow, HeaderBar,
+    PreferencesGroup, PreferencesPage, SpinRow, SwitchRow, ToolbarView, ViewStack, ViewSwitcher, WindowTitle,
 };
 
 use crate::audio::{SoundscapePlayer, SoundscapeType};
@@ -19,7 +19,7 @@ use crate::ramdump::RamDumpState;
 use crate::storage::{self, ContextAnchor, Language, LanguageSetting, SideQuestFormat, TetherSettings, UserStats};
 
 pub const FULL_WINDOW_WIDTH: i32 = 940;
-pub const FULL_WINDOW_HEIGHT: i32 = 840;
+pub const FULL_WINDOW_HEIGHT: i32 = 890;
 pub const FULL_WINDOW_MIN_WIDTH: i32 = 900;
 pub const FULL_WINDOW_MIN_HEIGHT: i32 = 480;
 
@@ -34,6 +34,7 @@ pub struct AppState {
     pub ramdump: RamDumpState,
     pub speedbump: crate::speedbump::SpeedbumpState,
     pub speedbump_active_prompt: bool,
+    pub dopamine: crate::dopamine::DopamineAccount,
     pub last_update: Instant,
     pub last_anchor_check: Instant,
     pub last_stats_check: Instant,
@@ -49,12 +50,14 @@ pub struct TetherUi {
     pub state: Rc<RefCell<AppState>>,
     pub window: gtk4::ApplicationWindow,
     pub main_box: gtk4::Box,
+    pub flow_box: gtk4::Box,
     pub mini_hud_box: gtk4::Box,
     pub css_provider: gtk4::CssProvider,
 
     // Dynamic header widgets
     pub status_badge: gtk4::Label,
     pub audio_btn: gtk4::Button,
+    pub dopamine_btn: gtk4::Button,
     pub editor_btn: gtk4::Button,
     pub pill_mode_btn: gtk4::Button,
 
@@ -98,6 +101,7 @@ pub struct TetherUi {
     pub stat_flow_val: gtk4::Label,
     pub stat_sessions_val: gtk4::Label,
     pub stat_impulses_val: gtk4::Label,
+    pub stat_dopamine_val: gtk4::Label,
 
     // RAM-dump widgets
     pub ram_now_entry: EntryRow,
@@ -155,6 +159,8 @@ impl TetherUi {
         }
 
         let initial_theme_mtime = crate::theme::get_colors_mtime();
+        let dopamine = crate::dopamine::load_dopamine_account();
+        let initial_dopamine_balance = dopamine.balance;
 
         let state = Rc::new(RefCell::new(AppState {
             flow,
@@ -167,6 +173,7 @@ impl TetherUi {
             ramdump,
             speedbump,
             speedbump_active_prompt: false,
+            dopamine,
             last_update: Instant::now(),
             last_anchor_check: Instant::now(),
             last_stats_check: Instant::now(),
@@ -204,6 +211,17 @@ impl TetherUi {
             .css_classes(["flat"])
             .build();
         header_bar.pack_start(&audio_btn);
+
+        // Left Header: Dopamine Account / Rewards Button
+        let dopamine_btn = gtk4::Button::builder()
+            .label(&format!("{} p", initial_dopamine_balance))
+            .tooltip_text(match initial_lang {
+                Language::Norwegian => "Dopaminkonto & Belønningsmeny",
+                _ => "Dopamine Account & Rewards",
+            })
+            .css_classes(["flat", "pill"])
+            .build();
+        header_bar.pack_start(&dopamine_btn);
 
         // Status chip
         let status_badge = gtk4::Label::builder()
@@ -592,6 +610,23 @@ impl TetherUi {
         pill3.append(&stat_impulses_val);
         pill3.append(&pill3_lbl);
         stat_pill_row.append(&pill3);
+
+        let pill4 = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        pill4.add_css_class("stat-pill");
+        let stat_dopamine_val = gtk4::Label::builder()
+            .label(&format!("{} p", initial_dopamine_balance))
+            .css_classes(["title-4"])
+            .build();
+        let pill4_lbl = gtk4::Label::builder()
+            .label(match initial_lang {
+                Language::Norwegian => "Dopaminpoeng",
+                _ => "Dopamine points",
+            })
+            .css_classes(["caption", "dim-label"])
+            .build();
+        pill4.append(&stat_dopamine_val);
+        pill4.append(&pill4_lbl);
+        stat_pill_row.append(&pill4);
 
         momentum_group.add(&stat_pill_row);
         flow_box.append(&momentum_group);
@@ -1156,10 +1191,12 @@ impl TetherUi {
             state: state.clone(),
             window: window.clone(),
             main_box,
+            flow_box: flow_box.clone(),
             mini_hud_box,
             css_provider,
             status_badge,
             audio_btn,
+            dopamine_btn,
             editor_btn,
             pill_mode_btn,
             timer_label,
@@ -1193,6 +1230,7 @@ impl TetherUi {
             stat_flow_val,
             stat_sessions_val,
             stat_impulses_val,
+            stat_dopamine_val,
             ram_now_entry,
             ram_status_entry,
             ram_next_entry,
@@ -1241,6 +1279,14 @@ impl TetherUi {
             let ui_clone = ui.clone();
             ui.audio_btn.connect_clicked(move |_| {
                 ui_clone.toggle_audio();
+            });
+        }
+
+        // Event: Dopamine header button (Open Dopamine Menu)
+        {
+            let ui_clone = ui.clone();
+            ui.dopamine_btn.connect_clicked(move |_| {
+                ui_clone.open_dopamine_menu();
             });
         }
 
@@ -1853,15 +1899,41 @@ impl TetherUi {
         }
 
         ui.window.present();
+
+        {
+            let ui_clone = ui.clone();
+            glib::idle_add_local_once(move || {
+                if !ui_clone.state.borrow().is_mini_hud {
+                    let full_h = ui_clone.natural_full_height();
+                    ui_clone.window.set_default_size(FULL_WINDOW_WIDTH, full_h);
+                    #[cfg(target_os = "linux")]
+                    {
+                        storage::resize_window(FULL_WINDOW_WIDTH, full_h);
+                    }
+                }
+            });
+        }
+
         ui
     }
 
+    pub fn natural_full_height(&self) -> i32 {
+        let header_h = self
+            .main_box
+            .first_child()
+            .map(|w| w.measure(gtk4::Orientation::Vertical, FULL_WINDOW_WIDTH).1)
+            .unwrap_or(48);
+        let (_, flow_nat_h, _, _) = self.flow_box.measure(gtk4::Orientation::Vertical, FULL_WINDOW_WIDTH);
+        (header_h + flow_nat_h).max(FULL_WINDOW_HEIGHT)
+    }
+
     pub fn set_mini_hud_mode(&self, is_mini: bool) {
+        let full_h = self.natural_full_height();
         if is_mini {
             // Save full window position before shrinking (validated & clamped)
             if let Some((cur_x, cur_y)) = storage::get_tether_window_pos() {
                 let locked = self.state.borrow().settings.locked_monitor.clone();
-                let clamped = storage::clamp_full_window_pos(cur_x, cur_y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &locked);
+                let clamped = storage::clamp_full_window_pos(cur_x, cur_y, FULL_WINDOW_WIDTH, full_h, &locked);
                 let mut st = self.state.borrow_mut();
                 st.settings.custom_pos_full = Some(clamped);
                 let _ = storage::save_settings(&st.settings);
@@ -1910,29 +1982,29 @@ impl TetherUi {
                 let (target_x, target_y) = {
                     let st = self.state.borrow();
                     if let Some((x, y)) = st.settings.custom_pos_full {
-                        storage::clamp_full_window_pos(x, y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
+                        storage::clamp_full_window_pos(x, y, FULL_WINDOW_WIDTH, full_h, &st.settings.locked_monitor)
                     } else {
-                        storage::get_centered_full_pos(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
+                        storage::get_centered_full_pos(FULL_WINDOW_WIDTH, full_h, &st.settings.locked_monitor)
                     }
                 };
                 // Move and resize window BEFORE setting full content so it doesn't jump or expand off-screen
                 storage::move_window_to_pos(target_x, target_y);
-                storage::resize_window(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT);
+                storage::resize_window(FULL_WINDOW_WIDTH, full_h);
             }
 
             self.window.set_size_request(FULL_WINDOW_MIN_WIDTH, FULL_WINDOW_MIN_HEIGHT);
             self.window.set_decorated(true);
             self.window.set_child(Some(&self.main_box));
-            self.window.set_default_size(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT);
+            self.window.set_default_size(FULL_WINDOW_WIDTH, full_h);
 
             #[cfg(target_os = "linux")]
             {
                 let (target_x, target_y) = {
                     let st = self.state.borrow();
                     if let Some((x, y)) = st.settings.custom_pos_full {
-                        storage::clamp_full_window_pos(x, y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
+                        storage::clamp_full_window_pos(x, y, FULL_WINDOW_WIDTH, full_h, &st.settings.locked_monitor)
                     } else {
-                        storage::get_centered_full_pos(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
+                        storage::get_centered_full_pos(FULL_WINDOW_WIDTH, full_h, &st.settings.locked_monitor)
                     }
                 };
                 storage::move_window_to_pos(target_x, target_y);
@@ -2059,6 +2131,8 @@ impl TetherUi {
                             let settings = st.settings.clone();
                             let _ = st.impulse.capture_with_settings(&settings);
                             st.stats.record_impulse();
+                            st.dopamine.earn_impulse_shield_bonus();
+                            let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
                             let _ = storage::save_user_stats(&st.stats);
                         }
                         crate::speedbump::refocus_editor();
@@ -2121,6 +2195,289 @@ impl TetherUi {
         });
     }
 
+    pub fn open_dopamine_menu(&self) {
+        let is_no = {
+            let st = self.state.borrow();
+            match st.settings.language.resolve() {
+                Language::Norwegian => true,
+                _ => false,
+            }
+        };
+
+        let dialog = gtk4::Window::builder()
+            .title(if is_no { "Dopaminmeny" } else { "Dopamine Menu" })
+            .default_width(540)
+            .default_height(580)
+            .modal(false)
+            .transient_for(&self.window)
+            .build();
+
+        let toolbar_view = ToolbarView::new();
+        let header_bar = HeaderBar::new();
+        let title_widget = WindowTitle::new(
+            if is_no { "Dopaminmeny" } else { "Dopamine Menu" },
+            if is_no { "Dopaminkonto & Belønninger" } else { "Dopamine Account & Rewards" },
+        );
+        header_bar.set_title_widget(Some(&title_widget));
+        toolbar_view.add_top_bar(&header_bar);
+
+        let scrolled = gtk4::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk4::PolicyType::Never)
+            .vexpand(true)
+            .hexpand(true)
+            .build();
+
+        let clamp = Clamp::builder()
+            .maximum_size(520)
+            .tightening_threshold(460)
+            .build();
+
+        let content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 16);
+        content_box.set_margin_top(16);
+        content_box.set_margin_bottom(24);
+        content_box.set_margin_start(16);
+        content_box.set_margin_end(16);
+
+        let state = self.state.clone();
+        let dopamine_btn = self.dopamine_btn.clone();
+        let stat_dopamine_val = self.stat_dopamine_val.clone();
+        let content_box_rc = Rc::new(content_box);
+
+        type RenderCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
+        let render_cell: RenderCallback = Rc::new(RefCell::new(None));
+        let render_cell_clone = render_cell.clone();
+
+        let content_box_clone = content_box_rc.clone();
+        *render_cell.borrow_mut() = Some(Box::new(move || {
+            // Remove previous children
+            while let Some(child) = content_box_clone.first_child() {
+                content_box_clone.remove(&child);
+            }
+
+            let (balance, total_earned, total_spent, rewards) = {
+                let st = state.borrow();
+                (
+                    st.dopamine.balance,
+                    st.dopamine.total_earned,
+                    st.dopamine.total_spent,
+                    st.dopamine.rewards.clone(),
+                )
+            };
+
+            // Hero Balance Card
+            let hero_card = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+            hero_card.add_css_class("card");
+            hero_card.add_css_class("hero-card");
+            hero_card.set_margin_bottom(8);
+
+            let balance_label = gtk4::Label::builder()
+                .label(&format!("{} {}", balance, if is_no { "poeng" } else { "points" }))
+                .css_classes(["title-1", "accent"])
+                .halign(gtk4::Align::Center)
+                .build();
+            hero_card.append(&balance_label);
+
+            let stats_subtitle = gtk4::Label::builder()
+                .label(&format!(
+                    "{} {} p  •  {} {} p",
+                    if is_no { "Totalt opptjent:" } else { "Total earned:" },
+                    total_earned,
+                    if is_no { "Innløst:" } else { "Redeemed:" },
+                    total_spent
+                ))
+                .css_classes(["dim-label", "caption"])
+                .halign(gtk4::Align::Center)
+                .build();
+            hero_card.append(&stats_subtitle);
+
+            let motto_label = gtk4::Label::builder()
+                .label(if is_no {
+                    "Tjen 1 poeng per 5 minutter fokus, +1 for mikro-start og +1 for hver parkert impuls."
+                } else {
+                    "Earn 1 point per 5 minutes of focus, +1 for micro-start and +1 for each parked impulse."
+                })
+                .css_classes(["dim-label", "caption"])
+                .halign(gtk4::Align::Center)
+                .wrap(true)
+                .justify(gtk4::Justification::Center)
+                .margin_top(4)
+                .build();
+            hero_card.append(&motto_label);
+            content_box_clone.append(&hero_card);
+
+            // Group rewards by category
+            let categories = [
+                crate::dopamine::RewardCategory::Quick,
+                crate::dopamine::RewardCategory::Break,
+                crate::dopamine::RewardCategory::Deep,
+                crate::dopamine::RewardCategory::Custom,
+            ];
+
+            for cat in categories {
+                let items_in_cat: Vec<_> = rewards.iter().filter(|r| r.category == cat).cloned().collect();
+                if items_in_cat.is_empty() {
+                    continue;
+                }
+
+                let group = PreferencesGroup::builder()
+                    .title(cat.display_name(is_no))
+                    .build();
+
+                for item in items_in_cat {
+                    let cost_text = format!("{} {}", item.cost, if is_no { "poeng" } else { "points" });
+                    let row = ActionRow::builder()
+                        .title(&item.title)
+                        .subtitle(&cost_text)
+                        .build();
+
+                    let cost_badge = gtk4::Label::builder()
+                        .label(&format!("{} p", item.cost))
+                        .css_classes(["badge-idle"])
+                        .valign(gtk4::Align::Center)
+                        .build();
+                    row.add_suffix(&cost_badge);
+
+                    let redeem_btn = gtk4::Button::builder()
+                        .label(if is_no { "Løs inn" } else { "Redeem" })
+                        .css_classes(["pill", "suggested-action"])
+                        .valign(gtk4::Align::Center)
+                        .sensitive(balance >= item.cost)
+                        .build();
+
+                    let state_for_redeem = state.clone();
+                    let dop_btn_for_redeem = dopamine_btn.clone();
+                    let stat_dop_for_redeem = stat_dopamine_val.clone();
+                    let item_id = item.id.clone();
+                    let item_title = item.title.clone();
+                    let item_cost = item.cost;
+                    let render_cell_redeem = render_cell_clone.clone();
+
+                    redeem_btn.connect_clicked(move |_| {
+                        let (success, new_balance) = {
+                            let mut st = state_for_redeem.borrow_mut();
+                            if let Ok(_) = st.dopamine.redeem(&item_id) {
+                                let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
+                                (true, st.dopamine.balance)
+                            } else {
+                                (false, st.dopamine.balance)
+                            }
+                        };
+
+                        if success {
+                            dop_btn_for_redeem.set_label(&format!("{} p", new_balance));
+                            stat_dop_for_redeem.set_label(&format!("{} p", new_balance));
+
+                            let notify_title = if is_no { "Belønning innløst!" } else { "Reward redeemed!" };
+                            let notify_body = if is_no {
+                                format!("Nyt: {} ({} poeng). Vel fortjent!", item_title, item_cost)
+                            } else {
+                                format!("Enjoy: {} ({} points). Well deserved!", item_title, item_cost)
+                            };
+                            crate::flowmodoro::notify(notify_title, &notify_body);
+
+                            if let Some(ref cb) = *render_cell_redeem.borrow() {
+                                cb();
+                            }
+                        }
+                    });
+
+                    row.add_suffix(&redeem_btn);
+
+                    if item.is_custom {
+                        let del_btn = gtk4::Button::builder()
+                            .icon_name("user-trash-symbolic")
+                            .css_classes(["flat", "circular"])
+                            .valign(gtk4::Align::Center)
+                            .tooltip_text(if is_no { "Slett belønning" } else { "Delete reward" })
+                            .build();
+
+                        let state_for_del = state.clone();
+                        let custom_id = item.id.clone();
+                        let render_cell_del = render_cell_clone.clone();
+
+                        del_btn.connect_clicked(move |_| {
+                            {
+                                let mut st = state_for_del.borrow_mut();
+                                st.dopamine.remove_custom_reward(&custom_id);
+                                let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
+                            }
+                            if let Some(ref cb) = *render_cell_del.borrow() {
+                                cb();
+                            }
+                        });
+
+                        row.add_suffix(&del_btn);
+                    }
+
+                    group.add(&row);
+                }
+
+                content_box_clone.append(&group);
+            }
+
+            // Group: Add Custom Reward
+            let add_group = PreferencesGroup::builder()
+                .title(if is_no { "Legg til egen belønning" } else { "Add Custom Reward" })
+                .build();
+
+            let title_entry = EntryRow::builder()
+                .title(if is_no { "Tittel" } else { "Title" })
+                .build();
+            add_group.add(&title_entry);
+
+            let cost_spin = SpinRow::builder()
+                .title(if is_no { "Kostnad (poeng)" } else { "Cost (points)" })
+                .adjustment(&gtk4::Adjustment::new(10.0, 1.0, 500.0, 1.0, 5.0, 0.0))
+                .build();
+            add_group.add(&cost_spin);
+
+            let add_action_row = ActionRow::builder()
+                .title(if is_no { "Opprett belønning" } else { "Create Reward" })
+                .build();
+
+            let create_btn = gtk4::Button::builder()
+                .label(if is_no { "Legg til" } else { "Add" })
+                .css_classes(["pill", "suggested-action"])
+                .valign(gtk4::Align::Center)
+                .build();
+
+            let state_for_add = state.clone();
+            let render_cell_add = render_cell_clone.clone();
+            let title_entry_clone = title_entry.clone();
+            let cost_spin_clone = cost_spin.clone();
+
+            create_btn.connect_clicked(move |_| {
+                let text = title_entry_clone.text().to_string();
+                if text.trim().is_empty() {
+                    return;
+                }
+                let cost = cost_spin_clone.value() as u32;
+                {
+                    let mut st = state_for_add.borrow_mut();
+                    st.dopamine.add_custom_reward(text, cost, crate::dopamine::RewardCategory::Custom);
+                    let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
+                }
+                if let Some(ref cb) = *render_cell_add.borrow() {
+                    cb();
+                }
+            });
+
+            add_action_row.add_suffix(&create_btn);
+            add_group.add(&add_action_row);
+            content_box_clone.append(&add_group);
+        }));
+
+        if let Some(ref cb) = *render_cell.borrow() {
+            cb();
+        }
+
+        clamp.set_child(Some(&*content_box_rc));
+        scrolled.set_child(Some(&clamp));
+        toolbar_view.set_content(Some(&scrolled));
+        dialog.set_child(Some(&toolbar_view));
+        dialog.present();
+    }
+
     pub fn select_impulse_file(&self) {
         if let Some(path) = storage::pick_impulse_file() {
             let path_str = path.to_string_lossy().to_string();
@@ -2167,6 +2524,18 @@ impl TetherUi {
 
             let old = st.previous_state;
             let cur = st.flow.state;
+
+            // Kontinuerlig opptjening av dopaminpoeng under aktiv fokus (1p per 5 min)
+            if cur == FlowState::Focus {
+                let earned = st.dopamine.record_focus_millis(
+                    dt.as_millis() as u64,
+                    crate::dopamine::DEFAULT_MILLIS_PER_DOPAMINE_POINT,
+                );
+                if earned > 0 {
+                    let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
+                }
+            }
+
             if old != cur {
                 st.previous_state = cur;
                 st.audio.handle_flow_state_transition(old, cur);
@@ -2185,7 +2554,14 @@ impl TetherUi {
                     }
                 } else if old == FlowState::MicroStart && cur == FlowState::Focus {
                     st.stats.record_micro_start();
+                    st.dopamine.earn_micro_start_bonus();
+                    let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
                     let _ = storage::save_user_stats(&st.stats);
+                }
+
+                // Lagre dopaminkonto ved overgang fra fokus til pause/idle
+                if old == FlowState::Focus {
+                    let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
                 }
 
                 // Maksimer/vis hovedvinduet automatisk når man tar pause så man enkelt kan ta RAM-dump eller skrive impulser
@@ -2276,7 +2652,8 @@ impl TetherUi {
                                 }
                             }
                         } else {
-                            let (clamped_x, clamped_y) = storage::clamp_full_window_pos(cur_x, cur_y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &locked_mon);
+                            let full_h = self.natural_full_height();
+                            let (clamped_x, clamped_y) = storage::clamp_full_window_pos(cur_x, cur_y, FULL_WINDOW_WIDTH, full_h, &locked_mon);
                             if cur_y >= 30 && (clamped_x - cur_x).abs() <= 50 && (clamped_y - cur_y).abs() <= 50 {
                                 let should_save = match st.settings.custom_pos_full {
                                     Some((old_x, old_y)) => (clamped_x - old_x).abs() > 4 || (clamped_y - old_y).abs() > 4,
@@ -2530,6 +2907,8 @@ impl TetherUi {
         self.stat_flow_val.set_label(&flow_str);
         self.stat_sessions_val.set_label(&st.stats.current_week_sessions.to_string());
         self.stat_impulses_val.set_label(&st.stats.current_week_impulses_captured.to_string());
+        self.stat_dopamine_val.set_label(&format!("{} p", st.dopamine.balance));
+        self.dopamine_btn.set_label(&format!("{} p", st.dopamine.balance));
 
         if let Some((x, y)) = st.settings.custom_pos_mini {
             self.pos_row.set_subtitle(&format!("Lagret Mini-HUD posisjon: X: {}, Y: {}", x, y));
@@ -2650,6 +3029,8 @@ impl TetherUi {
             let settings = st.settings.clone();
             let _ = st.impulse.capture_with_settings(&settings);
             st.stats.record_impulse();
+            st.dopamine.earn_impulse_shield_bonus();
+            let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
             let _ = storage::save_user_stats(&st.stats);
         }
         self.refresh_impulses_list();

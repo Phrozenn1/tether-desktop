@@ -1,6 +1,6 @@
 [package]
 name = "tether-desktop"
-version = "1.2.0"
+version = "1.3.0"
 edition = "2021"
 description = "Humane Flowmodoro, focus soundscapes & cognitive companion for deep work"
 authors = ["Phrozenn <kim@phrozenn.no>"]

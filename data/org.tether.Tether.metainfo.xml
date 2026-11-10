@@ -30,6 +30,17 @@
     <binary>tether</binary>
   </provides>
   <releases>
+    <release version="1.3.0" date="2026-11-10">
+      <description>
+        <p>Feature release introducing Dopamine Account and Micro-Rewards (Dopaminkonto) for ADHD positive reinforcement.</p>
+        <ul>
+          <li>Live dopamine point accrual: 1 point per 5 minutes of active focus, +1 bonus for completing a 5-minute Micro-Start, and +1 bonus for parking an impulse or resisting a distraction.</li>
+          <li>Interactive Dopamine Menu (Dopaminmeny) with Hero Balance Card, categorized micro-reward tiers, custom reward creator, and one-click guilt-free redemption.</li>
+          <li>HeaderBar pill indicator and Flow tab momentum stat widget tracking live dopamine balance.</li>
+          <li>Dynamic GTK4 natural height measurement for the Flow tab to prevent vertical clipping or scrolling.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.2.0" date="2026-11-10">
       <description>
         <p>Major feature release introducing Fartsdump (Soft Interceptor) to protect ADHD deep flow.</p>
