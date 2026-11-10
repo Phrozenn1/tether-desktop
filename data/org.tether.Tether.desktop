@@ -1,12 +1,12 @@
 [Desktop Entry]
 Name=Tether
-GenericName=Neurodivergent Flowmodoro & Cognitive Anchor
-Comment=Flowmodoro, cognitive anchoring, and impulse parking for neurodivergent developers (ADHD, Autism, Dyslexia)
+GenericName=Flowmodoro & Focus Companion
+Comment=Flowmodoro timer, cognitive anchoring, focus soundscapes, and impulse parking for anyone seeking deep, sustainable flow
 Exec=tether
 Icon=org.tether.Tether
 Terminal=false
 Type=Application
-Categories=Development;ProjectManagement;
-Keywords=Pomodoro;Flowmodoro;Neurodiversity;ADHD;Autism;Dyslexia;Focus;Neovim;VSCode;
+Categories=Utility;Office;Productivity;Development;
+Keywords=Pomodoro;Flowmodoro;Focus;DeepWork;Productivity;Neurodiversity;ADHD;Autism;Dyslexia;Soundscapes;
 StartupNotify=true
 StartupWMClass=org.tether.Tether

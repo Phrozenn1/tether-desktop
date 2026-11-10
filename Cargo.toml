@@ -2,13 +2,13 @@
 name = "tether-desktop"
 version = "1.1.0"
 edition = "2021"
-description = "Neurodivergent Flowmodoro & Cognitive Anchor for developers (ADHD, Autism, Dyslexia)"
+description = "Humane Flowmodoro, focus soundscapes & cognitive companion for deep work"
 authors = ["Phrozenn <kim@phrozenn.no>"]
 license = "MIT"
 repository = "https://github.com/Phrozenn1/tether-desktop"
 homepage = "https://github.com/Phrozenn1/tether-desktop"
 readme = "README.md"
-keywords = ["flowmodoro", "neurodiversity", "adhd", "autism", "dyslexia", "gtk4", "libadwaita"]
+keywords = ["flowmodoro", "deep-work", "focus", "soundscapes", "neurodiversity", "adhd", "gtk4", "libadwaita"]
 categories = ["gui", "productivity"]
 
 [dependencies]

@@ -4,11 +4,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)](https://github.com/Phrozenn1/tether-desktop)
 
-### Cross-Platform Flowmodoro Timer, RAM-Dump & Cognitive Anchor for Neurodivergent Developers
+### Universal Flowmodoro Timer, Focus Soundscapes & Cognitive Companion for Deep Work
 
-**Tether** is an unbreakable desktop companion built in **Rust** with **GTK4** and **Libadwaita** following GNOME Human Interface Guidelines (HIG). Designed specifically to mitigate the core cognitive friction points experienced across the neurodivergent spectrum (**ADHD**, **Autism/ASD**, **Dyslexia**, and **AuDHD**): **executive dysfunction**, **working memory decay**, **hyperfocus & monotropic attention disruption**, **autistic transition inertia**, **phonological overload**, and **shame-based streak habits**.
+**Tether** is an unbreakable desktop companion built in **Rust** with **GTK4** and **Libadwaita** following GNOME Human Interface Guidelines (HIG). Designed for **creators, knowledge workers, students, researchers, and professionals**—crafted with universal design principles that empower **neurodivergent minds** (**ADHD**, **Autism/ASD**, **Dyslexia**, **AuDHD**) as well as **neurotypical individuals** seeking calm, sustainable focus free from arbitrary countdown timers, acoustic distractions, and shame-based streak counters.
 
-Tether runs natively and seamlessly across **Linux** (GNOME, KDE Plasma, Hyprland, Sway, X11, Wayland), **macOS**, and **Windows**, featuring deep bi-directional synchronization with **Neovim** ([`tether.nvim`](https://github.com/Phrozenn1/tether.nvim)) and **VS Code** ([`tether-vscode`](https://github.com/Phrozenn1/tether-vscode)).
+Tether operates completely standalone as a desktop application across **Linux** (GNOME, KDE Plasma, Hyprland, Sway, X11, Wayland), **macOS**, and **Windows**, with optional deep bi-directional save-state synchronization for developers and technical writers using **Neovim** ([`tether.nvim`](https://github.com/Phrozenn1/tether.nvim)) and **VS Code** ([`tether-vscode`](https://github.com/Phrozenn1/tether-vscode)).
 
 ---
 
@@ -171,4 +171,4 @@ Key state files:
 
 Every design decision and workflow mechanic in Tether is engineered directly from peer-reviewed literature in cognitive neuroscience, executive dysfunction, stochastic resonance, and attention restoration theory:
 
-👉 **Read the full scientific foundation:** [**`RESEARCH.md` — Scientific Rationale & Neurodivergent Research Foundation**](RESEARCH.md) *(72 peer-reviewed citations, neurobiological models, and empirical analyses covering ADHD, Autism, and Dyslexia)*.
+👉 **Read the full scientific foundation:** [**`RESEARCH.md` — Scientific Rationale & Neurodivergent Research Foundation**](RESEARCH.md) *(74 peer-reviewed citations, universal cognitive ergonomics, and empirical analyses covering ADHD, Autism, Dyslexia, and Universal Design)*.

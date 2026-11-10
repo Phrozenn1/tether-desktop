@@ -279,13 +279,61 @@ Developmental dyslexia is widely mischaracterized as merely a reading impairment
 
 ---
 
-## 5. The Neurodivergent Matrix & Comorbidity (AuDHD & Dyslexia)
+## 5. Universal Design: The Neurodivergent Matrix & The "Curb-Cut Effect"
 
-Neurodevelopmental conditions rarely exist in isolation. Clinical literature reveals substantial diagnostic and neurological overlap:
+### 5.1 Comorbidity & The Neurodivergent Matrix (AuDHD & Dyslexia)
 
-- **ADHD & Autism (AuDHD):** Comorbidity rates range from **50% to 70%** (Hours et al., 2022; Leitner, 2014; Rommelse et al., 2010). Individuals with AuDHD navigate a simultaneous conflict between the ADHD brain's hunger for novelty/stimulation and the autistic brain's profound need for predictability, calm, and flow preservation.
-- **ADHD & Dyslexia:** Comorbidity is estimated at **25% to 40%** (Willcutt & Pennington, 2000; McGrath et al., 2011), compounding both phonological working memory constraints and temporal executive deficits.
-- **Universal Design for Neurodiversity:** Rather than building narrow, condition-specific software that forces users into diagnostic silos, Tether implements **Universal Cognitive Ergonomics**. By solving the fundamental friction points of attention initiation, flow preservation, working memory offloading, sensory masking, and shame-free habit retention, Tether serves as an empowering cognitive orthotic for all neurodivergent minds.
+Neurodevelopmental conditions rarely exist in isolated clinical silos. Extensive epidemiological and genetic literature demonstrates massive neurological overlap:
+
+- **ADHD & Autism (AuDHD):** Comorbidity rates range from **50% to 70%** (Hours et al., 2022; Leitner, 2014; Rommelse et al., 2010). Individuals with AuDHD navigate a continuous internal conflict between the ADHD brain's hunger for novelty/dopaminergic stimulation and the autistic brain's profound need for predictability, calm, and monotropic flow preservation.
+- **ADHD & Dyslexia:** Comorbidity is estimated between **25% and 40%** (Willcutt & Pennington, 2000; McGrath et al., 2011), compounding both phonological working memory constraints and temporal executive deficits.
+
+Rather than fragmenting functionality into narrow diagnostic silos, Tether implements **Universal Cognitive Ergonomics**—addressing root-level neural constraints that span across conditions.
+
+### 5.2 The "Curb-Cut Effect" in Cognitive Technology: Why Neurotypical Brains Flourish
+
+```
+               ┌──────────────────────────────────────────────┐
+               │         The Cognitive Curb-Cut Effect        │
+               │  Innovations designed for neurodivergence    │
+               │      universally benefit all human minds     │
+               └──────────────────────┬───────────────────────┘
+                                      │
+         ┌────────────────────────────┴────────────────────────────┐
+         ▼                                                         ▼
+┌─────────────────────────────────┐               ┌─────────────────────────────────┐
+│     Neurodivergent Baseline     │               │   Neurotypical Modern Reality   │
+│ Inherent executive dysfunction, │               │ Situational executive deficit   │
+│ working memory limits, sensory  │               │ induced by open-plan offices,   │
+│ hyper-reactivity, and inertia   │               │ notification pings & multitasking│
+└─────────────────────────────────┘               └─────────────────────────────────┘
+                                      │
+                                      ▼
+               ┌──────────────────────────────────────────────┐
+               │    Humane, Biologically Grounded Software    │
+               │  • Open count-up flow (no arbitrary cutoff)  │
+               │  • Proportional recovery (prevents burnout)  │
+               │  • Acoustic masking (shields from chaos)     │
+               │  • Shame-free momentum (sustains motivation) │
+               └──────────────────────────────────────────────┘
+```
+
+In urban planning, the **"Curb-Cut Effect"** (Mace, 1998; Rose & Meyer, 2002) describes how street curb ramps—originally engineered for wheelchair access—fundamentally improved mobility for parents with strollers, travelers with wheeled luggage, delivery workers, and runners.
+
+The exact same principle applies to **cognitive software design**:
+
+1. **Situational Executive Dysfunction in Modern Work:**  
+   Knowledge workers, writers, researchers, students, and professionals today operate under continuous cognitive siege: open-plan offices, constant Slack/email interruptions, context fragmentation, and meeting churn. As demonstrated by Gloria Mark et al. (2008) and Sweller (2011), these environmental pressures induce **situational executive deficits** even in neurotypical adults, exhausting prefrontal resources and causing mental fatigue.
+2. **Universal Flow Preservation:**  
+   No human brain does its best creative or analytical thinking when artificially truncated by a loud 25-minute timer alarm. Flow states (Csíkszentmihályi, 1990) are universally fragile across all human typologies. Counting UP and earning proportional rest is a biologically respectful paradigm for anyone engaged in deep problem solving.
+3. **The Power of 5-Minute Micro-Starts for All Procrastination:**  
+   Procrastination is universally recognized by psychologists as an *emotion regulation failure*, not a time management deficit (Pychyl & Flett, 2012). The psychological friction of facing an intimidating project is universal; lowering the commitment to 5 minutes works equally well for a neurotypical novelist with writer's block, an accountant facing tax season, a university student writing a thesis, or an ADHD programmer.
+4. **Acoustic Sanctuary for Open-Plan Offices:**  
+   Auditory masking with brown noise, gentle rain, or rolling ocean waves provides an immediate barrier against office chatter, coffee shop clatter, and tinnitus for any professional seeking quiet contemplation.
+5. **Eliminating the Toxic Shame of Habit Breaks:**  
+   The "What-the-Hell" effect (Polivy & Herman, 2002) affects all humans. When a conventional app wipes out a user's 30-day streak because of a sick child or an offline weekend, it demotivates neurotypical and neurodivergent users alike. Tether’s non-decaying Flyt-XP cumulative momentum system treats all users with dignity and positive reinforcement.
+
+Tether is therefore not merely a niche medical device—it is a **humane, calm computing paradigm** that enables any human mind to do meaningful work without burning out.
 
 ---
 
@@ -348,8 +396,9 @@ Neurodevelopmental conditions rarely exist in isolation. Clinical literature rev
 37. **Kofler, M. J., Rapport, M. D., Bolden, J., Sarver, D. E., & Raiker, J. S.** (2011). Working memory deficits and social problems in children with ADHD. *Journal of Abnormal Child Psychology*, 39(6), 805–817. https://doi.org/10.1007/s10802-011-9492-8
 38. **Kumar, S., Tansley-Hancock, O., Sedley, W., Winston, J. S., Callaghan, M. F., Allen, M., ... & Griffiths, T. D.** (2017). The brain basis for misophonia. *Current Biology*, 27(4), 527–533. https://doi.org/10.1016/j.cub.2016.12.048
 39. **Leitner, Y.** (2014). The co-occurrence of autism spectrum disorder and attention deficit hyperactivity disorder in children. *Current Opinion in Pediatrics*, 26(2), 148–155. https://doi.org/10.1097/MOP.0000000000000067
-40. **Marco, E. J., Hinkley, L. B., Hill, S. S., & Nagarajan, S. S.** (2011). Sensory processing in autism: A review, the story so far. *Molecular Autism*, 2(1), 15. https://doi.org/10.1186/2040-2392-2-15
-41. **Mark, G., Gudith, D., & Klocke, U.** (2008). The cost of interrupted work: More speed and stress. *Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI '08)*, 107–110. https://doi.org/10.1145/1357054.1357072
+40. **Mace, R. L.** (1998). *Universal design: Housing for the lifespan of all people*. Center for Universal Design, North Carolina State University.
+41. **Marco, E. J., Hinkley, L. B., Hill, S. S., & Nagarajan, S. S.** (2011). Sensory processing in autism: A review, the story so far. *Molecular Autism*, 2(1), 15. https://doi.org/10.1186/2040-2392-2-15
+42. **Mark, G., Gudith, D., & Klocke, U.** (2008). The cost of interrupted work: More speed and stress. *Proceedings of the SIGCHI Conference on Human Factors in Computing Systems (CHI '08)*, 107–110. https://doi.org/10.1145/1357054.1357072
 42. **Martelli, M., Di Filippo, G., Spinelli, D., & Zoccolotti, P.** (2009). Crowding, reading, and developmental dyslexia. *Journal of Vision*, 9(4), 14. https://doi.org/10.1167/9.4.14
 43. **Martinussen, R., Hayden, J., Hogg-Johnson, S., & Tannock, R.** (2005). A meta-analysis of working memory impairments in children with attention-deficit/hyperactivity disorder. *Journal of the American Academy of Child & Adolescent Psychiatry*, 44(4), 377–384. https://doi.org/10.1097/01.chi.0000153228.72591.73
 44. **McGrath, L. M., Pennington, B. F., Shanahan, M. A., Santerre-Lemmon, L. E., Barnard, H. D., Willcutt, E. G., ... & Olson, R. K.** (2011). A multiple deficit model of reading disability and attention-deficit/hyperactivity disorder. *Journal of Abnormal Psychology*, 120(1), 200–211. https://doi.org/10.1037/a0021311
@@ -362,7 +411,8 @@ Neurodevelopmental conditions rarely exist in isolation. Clinical literature rev
 51. **Pychyl, T. A., & Flett, G. L.** (2012). Procrastination and self-regulatory failure: An introduction to the special issue. *Journal of Rational-Emotive & Cognitive-Behavior Therapy*, 30(4), 203–212. https://doi.org/10.1007/s10942-012-0149-5
 52. **Ratcliffe, E., Gatersleben, B., & Sowden, P. T.** (2013). Bird sounds and their contributions to perceived attention restoration and stress recovery. *Journal of Environmental Psychology*, 36, 221–228. https://doi.org/10.1016/j.jenvp.2013.08.004
 53. **Rommelse, N. N., Franke, B., Geurts, H. M., Hartman, C. A., & Buitelaar, J. K.** (2010). Shared heritability of attention-deficit/hyperactivity disorder and autism spectrum disorder. *European Child & Adolescent Psychiatry*, 19(3), 281–295. https://doi.org/10.1007/s00787-010-0092-x
-54. **Shah, J. Y., Friedman, R., & Kruglanski, A. W.** (2002). Forgetting all else: On the dominance of goal pursuit over competing alternatives. *Journal of Personality and Social Psychology*, 83(6), 1261–1280. https://doi.org/10.1037/0022-3514.83.6.1261
+54. **Rose, D. H., & Meyer, A.** (2002). *Teaching every student in the digital age: Universal design for learning*. Association for Supervision and Curriculum Development.
+55. **Shah, J. Y., Friedman, R., & Kruglanski, A. W.** (2002). Forgetting all else: On the dominance of goal pursuit over competing alternatives. *Journal of Personality and Social Psychology*, 83(6), 1261–1280. https://doi.org/10.1037/0022-3514.83.6.1261
 55. **Shaw, P., Stringaris, A., Nigg, J., & Leibenluft, E.** (2014). Emotion dysregulation in attention deficit hyperactivity disorder. *American Journal of Psychiatry*, 171(3), 276–293. https://doi.org/10.1176/appi.ajp.2013.13070966
 56. **Sikström, S., & Söderlund, G.** (2007). Stimulus-dependent dopamine release in attention-deficit/hyperactivity disorder: The moderate brain arousal model. *Psychological Review*, 114(4), 1047–1075. https://doi.org/10.1037/0033-295X.114.4.1047
 57. **Snowling, M. J.** (2000). *Dyslexia* (2nd ed.). Blackwell Publishers.

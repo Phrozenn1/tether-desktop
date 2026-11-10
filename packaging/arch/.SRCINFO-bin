@@ -1,5 +1,5 @@
 pkgbase = tether-bin
-	pkgdesc = Neurodivergent Flowmodoro & Cognitive Anchor for developers (binary release, ADHD/Autism/Dyslexia)
+	pkgdesc = Humane Flowmodoro, focus soundscapes & cognitive companion for deep work (binary release)
 	pkgver = 1.1.0
 	pkgrel = 1
 	url = https://github.com/Phrozenn1/tether-desktop
