@@ -145,5 +145,11 @@ Key state files:
 
 ---
 
-## 📄 License
-MIT © Kim Bech <kim@phrozenn.no>
+## 📄 License & Audio Credits
+
+- **Code:** [MIT License](LICENSE) © Kim Bech <kim@phrozenn.no>
+- **Focus Soundscape Audio Assets:**
+  - *Gentle Rain:* Based on field recording by Zuvji ([CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/))
+  - *Ocean Waves:* Based on ambient surf recording ([CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/))
+  - *Mountain Brook:* Based on Okanagan Mountain snowmelt stream recording ([CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/))
+  - *Forest Wind:* Based on Roland R-07 tripod woodland recording by Robert EA Harvey ([CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/))
