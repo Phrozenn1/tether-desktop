@@ -1,6 +1,6 @@
 pkgbase = tether
 	pkgdesc = Humane Flowmodoro, focus soundscapes & cognitive companion for deep work
-	pkgver = 1.1.1
+	pkgver = 1.2.0
 	pkgrel = 1
 	url = https://github.com/Phrozenn1/tether-desktop
 	arch = x86_64
@@ -9,7 +9,7 @@ pkgbase = tether
 	depends = gtk4
 	depends = libadwaita
 	depends = alsa-lib
-	source = tether-1.1.1.tar.gz::https://github.com/Phrozenn1/tether-desktop/archive/refs/tags/v1.1.1.tar.gz
-	sha256sums = 562fdaf77d6363a7f43b1dc58988510b793e671625d4b6d4ff6f04d3d8bd7e87
+	source = tether-1.2.0.tar.gz::https://github.com/Phrozenn1/tether-desktop/archive/refs/tags/v1.2.0.tar.gz
+	sha256sums = bf98a982f04bdbeba91b31e8c6cde85e83f8f4ddad7d36e75aca534a9c5bd715
 
 pkgname = tether
