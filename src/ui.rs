@@ -19,7 +19,7 @@ use crate::ramdump::RamDumpState;
 use crate::storage::{self, ContextAnchor, Language, LanguageSetting, SideQuestFormat, TetherSettings, UserStats};
 
 pub const FULL_WINDOW_WIDTH: i32 = 940;
-pub const FULL_WINDOW_HEIGHT: i32 = 640;
+pub const FULL_WINDOW_HEIGHT: i32 = 780;
 pub const FULL_WINDOW_MIN_WIDTH: i32 = 900;
 pub const FULL_WINDOW_MIN_HEIGHT: i32 = 480;
 
