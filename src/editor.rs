@@ -560,36 +560,45 @@ pub fn install_vscode_extension(editor: EditorType) -> Result<String, String> {
 }
 
 pub fn get_focused_editor() -> Option<EditorType> {
+    // 1. Primary: Platform-agnostic focus reported directly by editor integration (Neovim, VS Code, etc.)
+    // Works universally across all desktop environments (GNOME, KDE, Hyprland, Sway, Windows, macOS).
+    if let Some(editor) = crate::storage::get_focused_editor_from_state() {
+        return Some(editor);
+    }
+
+    // 2. Secondary fallback on Hyprland: query activewindow
     #[cfg(target_os = "linux")]
     {
-        if let Ok(out) = std::process::Command::new("hyprctl").args(["activewindow", "-j"]).output() {
-            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
-                let class = val.get("class").and_then(|c| c.as_str()).unwrap_or("").to_lowercase();
-                let title = val.get("title").and_then(|t| t.as_str()).unwrap_or("").to_lowercase();
-                let init_title = val.get("initialTitle").and_then(|t| t.as_str()).unwrap_or("").to_lowercase();
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            if let Ok(out) = std::process::Command::new("hyprctl").args(["activewindow", "-j"]).output() {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                    let class = val.get("class").and_then(|c| c.as_str()).unwrap_or("").to_lowercase();
+                    let title = val.get("title").and_then(|t| t.as_str()).unwrap_or("").to_lowercase();
+                    let init_title = val.get("initialTitle").and_then(|t| t.as_str()).unwrap_or("").to_lowercase();
 
-                if class.contains("code") {
-                    return Some(EditorType::VSCode);
-                }
-                if class.contains("vscodium") {
-                    return Some(EditorType::VSCodium);
-                }
-                if class.contains("cursor") {
-                    return Some(EditorType::Cursor);
-                }
-                if class.contains("neovide") {
-                    return Some(EditorType::Neovide);
-                }
-                if title.contains("helix") || class.contains("helix") || title.contains("hx") {
-                    return Some(EditorType::Helix);
-                }
-                if title.contains("nvim") || title.contains("neovim") || init_title.contains("nvim") {
-                    return Some(EditorType::Neovim);
-                }
-                if let Some(pid) = val.get("pid").and_then(|p| p.as_i64()) {
-                    if let Ok(pgrep) = std::process::Command::new("pgrep").args(["-P", &pid.to_string(), "nvim"]).output() {
-                        if !pgrep.stdout.is_empty() {
-                            return Some(EditorType::Neovim);
+                    if class.contains("code") {
+                        return Some(EditorType::VSCode);
+                    }
+                    if class.contains("vscodium") {
+                        return Some(EditorType::VSCodium);
+                    }
+                    if class.contains("cursor") {
+                        return Some(EditorType::Cursor);
+                    }
+                    if class.contains("neovide") {
+                        return Some(EditorType::Neovide);
+                    }
+                    if title.contains("helix") || class.contains("helix") || title.contains("hx") {
+                        return Some(EditorType::Helix);
+                    }
+                    if title.contains("nvim") || title.contains("neovim") || init_title.contains("nvim") {
+                        return Some(EditorType::Neovim);
+                    }
+                    if let Some(pid) = val.get("pid").and_then(|p| p.as_i64()) {
+                        if let Ok(pgrep) = std::process::Command::new("pgrep").args(["-P", &pid.to_string(), "nvim"]).output() {
+                            if !pgrep.stdout.is_empty() {
+                                return Some(EditorType::Neovim);
+                            }
                         }
                     }
                 }

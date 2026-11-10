@@ -493,19 +493,21 @@ impl MiniHudPlacement {
 pub fn ensure_pinned(pinned: bool) {
     #[cfg(target_os = "linux")]
     {
-        if let Ok(out) = std::process::Command::new("hyprctl").args(["clients", "-j"]).output() {
-            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
-                if let Some(arr) = val.as_array() {
-                    for client in arr {
-                        let class = client.get("class").and_then(|c| c.as_str()).unwrap_or("");
-                        if class == "org.tether.Tether" || class == "tether" {
-                            let is_currently_pinned = client.get("pinned").and_then(|p| p.as_bool()).unwrap_or(false);
-                            if is_currently_pinned != pinned {
-                                let _ = std::process::Command::new("hyprctl")
-                                    .args(["dispatch", "hl.dsp.window.pin({ window = \"class:org.tether.Tether\" })"])
-                                    .output();
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            if let Ok(out) = std::process::Command::new("hyprctl").args(["clients", "-j"]).output() {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                    if let Some(arr) = val.as_array() {
+                        for client in arr {
+                            let class = client.get("class").and_then(|c| c.as_str()).unwrap_or("");
+                            if class == "org.tether.Tether" || class == "tether" {
+                                let is_currently_pinned = client.get("pinned").and_then(|p| p.as_bool()).unwrap_or(false);
+                                if is_currently_pinned != pinned {
+                                    let _ = std::process::Command::new("hyprctl")
+                                        .args(["dispatch", "hl.dsp.window.pin({ window = \"class:org.tether.Tether\" })"])
+                                        .output();
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
                 }
@@ -1032,26 +1034,30 @@ pub fn get_tether_window_pos() -> Option<(i32, i32)> {
 pub fn move_window_to_pos(x: i32, y: i32) {
     #[cfg(target_os = "linux")]
     {
-        let move_cmd = format!(
-            "hl.dsp.window.move({{ x = {}, y = {}, window = \"class:org.tether.Tether\" }})",
-            x, y
-        );
-        let _ = std::process::Command::new("hyprctl")
-            .args(["dispatch", &move_cmd])
-            .output();
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            let move_cmd = format!(
+                "hl.dsp.window.move({{ x = {}, y = {}, window = \"class:org.tether.Tether\" }})",
+                x, y
+            );
+            let _ = std::process::Command::new("hyprctl")
+                .args(["dispatch", &move_cmd])
+                .output();
+        }
     }
 }
 
 pub fn resize_window(w: i32, h: i32) {
     #[cfg(target_os = "linux")]
     {
-        let cmd = format!(
-            "hl.dsp.window.resize({{ x = {}, y = {}, relative = false, window = \"class:org.tether.Tether\" }})",
-            w, h
-        );
-        let _ = std::process::Command::new("hyprctl")
-            .args(["dispatch", &cmd])
-            .output();
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            let cmd = format!(
+                "hl.dsp.window.resize({{ x = {}, y = {}, relative = false, window = \"class:org.tether.Tether\" }})",
+                w, h
+            );
+            let _ = std::process::Command::new("hyprctl")
+                .args(["dispatch", &cmd])
+                .output();
+        }
     }
 }
 
@@ -1140,6 +1146,88 @@ pub fn open_or_focus_neovim(terminal_cmd: &str) {
         let _ = std::process::Command::new(parts[0])
             .args(&parts[1..])
             .spawn();
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EditorFocusState {
+    #[serde(default)]
+    pub editor: String,
+    #[serde(default)]
+    pub focused: bool,
+    #[serde(default)]
+    pub pid: u32,
+    #[serde(default)]
+    pub timestamp: i64,
+    #[serde(default)]
+    pub server_name: String,
+}
+
+pub fn get_editor_focus_file() -> PathBuf {
+    get_data_dir().join("editor_focus.json")
+}
+
+pub fn load_editor_focus() -> Option<EditorFocusState> {
+    let path = get_editor_focus_file();
+    if let Ok(bytes) = std::fs::read(path) {
+        if let Ok(state) = serde_json::from_slice::<EditorFocusState>(&bytes) {
+            return Some(state);
+        }
+    }
+    None
+}
+
+pub fn is_pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new(&format!("/proc/{}", pid)).exists()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid)])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(true)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        true
+    }
+}
+
+pub fn get_focused_editor_from_state() -> Option<crate::editor::EditorType> {
+    let focus = load_editor_focus()?;
+    if !focus.focused {
+        return None;
+    }
+    if !is_pid_alive(focus.pid) {
+        return None;
+    }
+    let now = chrono::Utc::now().timestamp();
+    if (now - focus.timestamp).abs() > 15 * 60 {
+        return None;
+    }
+
+    match focus.editor.to_lowercase().as_str() {
+        "nvim" | "neovim" => Some(crate::editor::EditorType::Neovim),
+        "code" | "vscode" => Some(crate::editor::EditorType::VSCode),
+        "vscodium" | "codium" => Some(crate::editor::EditorType::VSCodium),
+        "cursor" => Some(crate::editor::EditorType::Cursor),
+        "neovide" => Some(crate::editor::EditorType::Neovide),
+        "helix" | "hx" => Some(crate::editor::EditorType::Helix),
+        _ => None,
     }
 }
 
@@ -1477,5 +1565,15 @@ mod tests {
 
         // Filter with Keep: nothing pruned
         assert!(CompletedCleanup::Keep.max_age_duration().is_none());
+    }
+
+    #[test]
+    fn test_editor_focus_state_serde() {
+        let json = r#"{"focused":true,"editor":"neovim","timestamp":1794321307,"server_name":"/run/user/1000/nvim.123","pid":123}"#;
+        let state: EditorFocusState = serde_json::from_str(json).unwrap();
+        assert!(state.focused);
+        assert_eq!(state.editor, "neovim");
+        assert_eq!(state.pid, 123);
+        assert_eq!(state.timestamp, 1794321307);
     }
 }
