@@ -30,6 +30,16 @@
     <binary>tether</binary>
   </provides>
   <releases>
+    <release version="1.1.1" date="2026-11-10">
+      <description>
+        <p>User interface polish, calm typography, and dedicated focus soundscape section.</p>
+        <ul>
+          <li>Added dedicated group header and description for the focus soundscape controls.</li>
+          <li>Replaced raw unicode emojis across buttons, headers, dialogs, and badges with clean, professional typography and symbolic vector icons in line with GNOME HIG and Calm Design.</li>
+          <li>Refined action button labels, context anchor rows, momentum tiers, and editor connection status indicators.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-11-10">
       <description>
         <p>Feature release with focus soundscapes, volume popover, interactive checkboxes, retention cleanup, and platform-agnostic focus tracking.</p>
