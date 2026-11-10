@@ -1,6 +1,6 @@
 # Maintainer: Phrozenn <kim@phrozenn.no>
 pkgname=tether
-pkgver=1.2.0
+pkgver=1.3.0
 pkgrel=1
 pkgdesc="Humane Flowmodoro, focus soundscapes & cognitive companion for deep work"
 arch=('x86_64')
@@ -9,7 +9,7 @@ license=('MIT')
 depends=('gtk4' 'libadwaita' 'alsa-lib')
 makedepends=('cargo')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('bf98a982f04bdbeba91b31e8c6cde85e83f8f4ddad7d36e75aca534a9c5bd715')
+sha256sums=('1dd21b7885484d8e51306c582f39e98afc50011a9c41b106e0cc5ad5c55bd88c')
 
 prepare() {
     cd "$srcdir/tether-desktop-$pkgver"
