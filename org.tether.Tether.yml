@@ -1,0 +1,38 @@
+app-id: org.tether.Tether
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: tether
+
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --socket=pulseaudio
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --filesystem=home
+  - --filesystem=xdg-run/hypr:ro
+
+build-options:
+  build-args:
+    - --share=network
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/tether/cargo-home
+
+modules:
+  - name: tether
+    buildsystem: simple
+    build-commands:
+      - cargo build --release
+      - install -Dm755 target/release/tether-desktop /app/bin/tether
+      - install -Dm644 data/org.tether.Tether.desktop /app/share/applications/org.tether.Tether.desktop
+      - install -Dm644 assets/tether.svg /app/share/icons/hicolor/scalable/apps/org.tether.Tether.svg
+      - install -Dm644 data/org.tether.Tether.metainfo.xml /app/share/metainfo/org.tether.Tether.metainfo.xml
+    sources:
+      - type: dir
+        path: .

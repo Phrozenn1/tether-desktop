@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.tether.Tether</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Tether</name>
+  <summary>ADHD Flowmodoro and impulse-parking companion for developers</summary>
+  <description>
+    <p>
+      Tether is an unbreakable Flowmodoro and impulse-parking companion designed
+      specifically for developers with ADHD. It calculates proportional breaks
+      based on your actual focus time, parks sudden rabbit-hole thoughts into RAM-dumps
+      or Side-Quests without breaking your flow, and seamlessly synchronizes with
+      Neovim and VS Code.
+    </p>
+  </description>
+  <developer id="phrozenn.no">
+    <name>Phrozenn</name>
+  </developer>
+  <launchable type="desktop-id">org.tether.Tether.desktop</launchable>
+  <url type="homepage">https://github.com/Phrozenn1/tether-desktop</url>
+  <url type="bugtracker">https://github.com/Phrozenn1/tether-desktop/issues</url>
+  <provides>
+    <binary>tether</binary>
+  </provides>
+  <releases>
+    <release version="1.0.1" date="2026-11-10">
+      <description>
+        <p>Added pause banking on early break termination, per-editor minimize settings, and auto-maximize on break.</p>
+      </description>
+    </release>
+    <release version="1.0.0" date="2026-11-09">
+      <description>
+        <p>Initial release of Tether desktop companion.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

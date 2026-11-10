@@ -2,6 +2,14 @@
 name = "tether-desktop"
 version = "1.0.1"
 edition = "2021"
+description = "ADHD Flowmodoro & Brain-Dump Companion for developers"
+authors = ["Phrozenn <kim@phrozenn.no>"]
+license = "MIT"
+repository = "https://github.com/Phrozenn1/tether-desktop"
+homepage = "https://github.com/Phrozenn1/tether-desktop"
+readme = "README.md"
+keywords = ["flowmodoro", "pomodoro", "adhd", "gtk4", "libadwaita"]
+categories = ["gui", "productivity"]
 
 [dependencies]
 libadwaita = { version = "0.9", features = ["v1_5"] }
@@ -14,3 +22,29 @@ dirs = "5.0"
 rfd = "0.18.0"
 rodio = "0.20"
 tray-icon = { version = "0.26.1", default-features = false, features = ["ksni"] }
+
+[package.metadata.deb]
+name = "tether"
+maintainer = "Phrozenn <kim@phrozenn.no>"
+copyright = "2026, Phrozenn"
+license-file = ["LICENSE"]
+depends = "$auto, libadwaita-1-0 (>= 1.5.0), libasound2 | libasound2t64"
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/tether-desktop", "usr/bin/tether", "755"],
+    ["data/org.tether.Tether.desktop", "usr/share/applications/org.tether.Tether.desktop", "644"],
+    ["assets/tether.svg", "usr/share/icons/hicolor/scalable/apps/org.tether.Tether.svg", "644"],
+    ["data/org.tether.Tether.metainfo.xml", "usr/share/metainfo/org.tether.Tether.metainfo.xml", "644"],
+]
+
+[package.metadata.generate-rpm]
+name = "tether"
+summary = "ADHD Flowmodoro & Brain-Dump Companion for developers"
+license = "MIT"
+assets = [
+    { source = "target/release/tether-desktop", dest = "/usr/bin/tether", mode = "755" },
+    { source = "data/org.tether.Tether.desktop", dest = "/usr/share/applications/org.tether.Tether.desktop", mode = "644" },
+    { source = "assets/tether.svg", dest = "/usr/share/icons/hicolor/scalable/apps/org.tether.Tether.svg", mode = "644" },
+    { source = "data/org.tether.Tether.metainfo.xml", dest = "/usr/share/metainfo/org.tether.Tether.metainfo.xml", mode = "644" },
+]

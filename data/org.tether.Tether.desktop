@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Tether
+GenericName=ADHD Flowmodoro & Brain-Dump Companion
+Comment=Unbreakable focus flowmodoro, side-quest parking, and external editor sync
+Exec=tether
+Icon=org.tether.Tether
+Terminal=false
+Type=Application
+Categories=Development;ProjectManagement;
+Keywords=Pomodoro;Flowmodoro;ADHD;Focus;Neovim;VSCode;
+StartupNotify=true
+StartupWMClass=org.tether.Tether

@@ -1,0 +1,25 @@
+# Maintainer: Phrozenn <kim@phrozenn.no>
+pkgname=tether-bin
+pkgver=1.0.1
+pkgrel=1
+pkgdesc="ADHD Flowmodoro & Brain-Dump Companion for developers (binary release)"
+arch=('x86_64')
+url="https://github.com/Phrozenn1/tether-desktop"
+license=('MIT')
+depends=('gtk4' 'libadwaita' 'alsa-lib')
+provides=('tether')
+conflicts=('tether')
+source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/tether-linux-x86_64.tar.gz"
+        "$url/raw/v$pkgver/data/org.tether.Tether.desktop"
+        "$url/raw/v$pkgver/assets/tether.svg"
+        "$url/raw/v$pkgver/data/org.tether.Tether.metainfo.xml"
+        "$url/raw/v$pkgver/LICENSE")
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+    install -Dm755 "$srcdir/tether" "$pkgdir/usr/bin/tether"
+    install -Dm644 "$srcdir/org.tether.Tether.desktop" "$pkgdir/usr/share/applications/org.tether.Tether.desktop"
+    install -Dm644 "$srcdir/tether.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/org.tether.Tether.svg"
+    install -Dm644 "$srcdir/org.tether.Tether.metainfo.xml" "$pkgdir/usr/share/metainfo/org.tether.Tether.metainfo.xml"
+    install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

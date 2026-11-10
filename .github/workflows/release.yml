@@ -15,20 +15,9 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            output_file: tether-linux-x86_64.tar.gz
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            output_file: Tether-macos.dmg
-
+  build-linux:
+    name: Build Linux (.tar.gz, .deb, .rpm)
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,13 +26,70 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-dev libxkbcommon-dev libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev libgtk-4-dev libadwaita-1-dev
+          sudo apt-get install -y \
+            libwayland-dev libxkbcommon-dev libgl1-mesa-dev libx11-dev \
+            libxcursor-dev libxi-dev libxrandr-dev libxinerama-dev \
+            libgtk-4-dev libadwaita-1-dev libasound2-dev alien
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package Linux Tarball
+        run: |
+          mkdir -p tether-linux
+          cp target/release/tether-desktop tether-linux/tether
+          cp data/org.tether.Tether.desktop tether-linux/
+          cp assets/tether.svg tether-linux/
+          cp data/org.tether.Tether.metainfo.xml tether-linux/
+          cp LICENSE README.md tether-linux/
+          tar -czvf tether-linux-x86_64.tar.gz -C tether-linux .
+
+      - name: Package Debian (.deb)
+        run: |
+          curl -sSL -O https://github.com/kornelski/cargo-deb/releases/download/v3.8.0/cargo-deb_3.8.0-1_amd64.deb
+          sudo dpkg -i cargo-deb_3.8.0-1_amd64.deb
+          cargo deb --no-build
+
+      - name: Package RPM (.rpm)
+        run: |
+          sudo alien -r -c --bump=0 target/debian/*.deb
+          mkdir -p target/rpm
+          mv *.rpm target/rpm/ || true
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            tether-linux-x86_64.tar.gz
+            target/debian/*.deb
+            target/rpm/*.rpm
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.release_tag }}
+          files: |
+            tether-linux-x86_64.tar.gz
+            target/debian/*.deb
+            target/rpm/*.rpm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    name: Build macOS (.dmg)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install macOS dependencies
-        if: matrix.os == 'macos-latest'
         run: |
           brew install gtk4 libadwaita pkg-config
           echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix gtk4)/lib/pkgconfig:$(brew --prefix libadwaita)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
@@ -51,9 +97,7 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
-      # macOS: create .app bundle and .dmg image
       - name: Package macOS DMG
-        if: matrix.os == 'macos-latest'
         run: |
           mkdir -p "Tether.app/Contents/MacOS"
           mkdir -p "Tether.app/Contents/Resources"
@@ -67,7 +111,7 @@ jobs:
               <key>CFBundleExecutable</key>
               <string>tether</string>
               <key>CFBundleIdentifier</key>
-              <string>com.phrozenn.tether</string>
+              <string>org.tether.Tether</string>
               <key>CFBundleName</key>
               <string>Tether</string>
               <key>CFBundlePackageType</key>
@@ -83,24 +127,105 @@ jobs:
           EOF
           hdiutil create -volname "Tether" -srcfolder "Tether.app" -ov -format UDZO Tether-macos.dmg
 
-      # Linux: package binary into .tar.gz
-      - name: Package Linux
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          cp target/release/tether-desktop tether
-          tar -czvf tether-linux-x86_64.tar.gz tether
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.output_file }}
-          path: ${{ matrix.output_file }}
+          name: Tether-macos.dmg
+          path: Tether-macos.dmg
 
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.release_tag }}
-          files: ${{ matrix.output_file }}
+          files: Tether-macos.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    name: Build Windows (.exe / .zip)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 & Dependencies
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            zip
+
+      - name: Build Release Binary
+        run: cargo build --release
+
+      - name: Package Windows ZIP
+        run: |
+          mkdir -p tether-windows
+          cp target/release/tether-desktop.exe tether-windows/tether.exe
+          cp target/release/tether-desktop.exe tether.exe
+          ldd target/release/tether-desktop.exe | grep /ucrt64/bin/ | awk '{print $3}' | xargs -I {} cp {} tether-windows/ || true
+          mkdir -p tether-windows/share/glib-2.0/schemas
+          cp -r /ucrt64/share/glib-2.0/schemas/* tether-windows/share/glib-2.0/schemas/ 2>/dev/null || true
+          zip -r tether-windows-x86_64.zip tether-windows
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: |
+            tether-windows-x86_64.zip
+            tether.exe
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.release_tag }}
+          files: |
+            tether-windows-x86_64.zip
+            tether.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-flatpak:
+    name: Build Flatpak (.flatpak)
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-47
+      options: --privileged
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: org.tether.Tether.yml
+          bundle: tether.flatpak
+          cache: false
+          run-tests: false
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tether.flatpak
+          path: tether.flatpak
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.release_tag }}
+          files: tether.flatpak
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
