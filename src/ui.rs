@@ -32,6 +32,8 @@ pub struct AppState {
     pub anchor: Option<ContextAnchor>,
     pub impulse: ImpulseState,
     pub ramdump: RamDumpState,
+    pub speedbump: crate::speedbump::SpeedbumpState,
+    pub speedbump_active_prompt: bool,
     pub last_update: Instant,
     pub last_anchor_check: Instant,
     pub last_stats_check: Instant,
@@ -138,6 +140,7 @@ impl TetherUi {
         let anchor = storage::load_context_anchor();
         let impulse = ImpulseState::new();
         let ramdump = RamDumpState::new();
+        let speedbump = crate::speedbump::SpeedbumpState::new();
 
         // Apply Theme CSS (Omarchy live integration)
         let colors = crate::theme::load_omarchy_colors();
@@ -162,6 +165,8 @@ impl TetherUi {
             anchor,
             impulse,
             ramdump,
+            speedbump,
+            speedbump_active_prompt: false,
             last_update: Instant::now(),
             last_anchor_check: Instant::now(),
             last_stats_check: Instant::now(),
@@ -790,6 +795,56 @@ impl TetherUi {
             .build();
         set_audio_group.add(&auto_sound_switch);
         settings_page.add(&set_audio_group);
+
+        // Group: Speedbump (Soft Interceptor)
+        let set_speedbump_group = PreferencesGroup::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Fartsdump (Avsporingsvern)",
+                _ => "Speedbump (Distraction Shield)",
+            })
+            .description(match initial_lang {
+                Language::Norwegian => "Pustepause og impulsfangst hvis du åpner kaninhull under fokus",
+                _ => "Gentle pause and impulse capture if rabbit holes open during focus",
+            })
+            .build();
+
+        let speedbump_switch = SwitchRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Aktiver fartsdump under fokus",
+                _ => "Enable speedbump during focus",
+            })
+            .subtitle(match initial_lang {
+                Language::Norwegian => "Viser en rolig påminnelse om aktivt vindu matcher kjente distraksjoner",
+                _ => "Shows a gentle prompt if active window matches known distractions",
+            })
+            .active(initial_settings.speedbump_enabled)
+            .build();
+        set_speedbump_group.add(&speedbump_switch);
+
+        let speedbump_cooldown_spin = SpinRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Nedkjølingstid (sekunder)",
+                _ => "Cooldown (seconds)",
+            })
+            .subtitle(match initial_lang {
+                Language::Norwegian => "Minimum tid mellom påminnelser for samme avsporing",
+                _ => "Minimum interval between prompts for the same distraction",
+            })
+            .adjustment(&gtk4::Adjustment::new(initial_settings.speedbump_cooldown_secs as f64, 10.0, 600.0, 5.0, 30.0, 0.0))
+            .numeric(true)
+            .build();
+        set_speedbump_group.add(&speedbump_cooldown_spin);
+
+        let speedbump_triggers_entry = EntryRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Kaninhull-nøkkelord (kommaseparert)",
+                _ => "Rabbit hole keywords (comma-separated)",
+            })
+            .text(&initial_settings.speedbump_triggers.join(", "))
+            .build();
+        set_speedbump_group.add(&speedbump_triggers_entry);
+
+        settings_page.add(&set_speedbump_group);
 
         // Group: Impulse Storage
         let set_storage_group = PreferencesGroup::builder()
@@ -1501,6 +1556,36 @@ impl TetherUi {
         }
         {
             let state_clone = state.clone();
+            speedbump_switch.connect_active_notify(move |sw| {
+                let mut st = state_clone.borrow_mut();
+                st.settings.speedbump_enabled = sw.is_active();
+                let _ = storage::save_settings(&st.settings);
+            });
+        }
+        {
+            let state_clone = state.clone();
+            speedbump_cooldown_spin.connect_value_notify(move |spin| {
+                let mut st = state_clone.borrow_mut();
+                st.settings.speedbump_cooldown_secs = spin.value().round() as u64;
+                let _ = storage::save_settings(&st.settings);
+            });
+        }
+        {
+            let state_clone = state.clone();
+            speedbump_triggers_entry.connect_changed(move |entry| {
+                let text = entry.text();
+                let triggers: Vec<String> = text
+                    .split(',')
+                    .map(|s| s.trim().to_lowercase())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let mut st = state_clone.borrow_mut();
+                st.settings.speedbump_triggers = triggers;
+                let _ = storage::save_settings(&st.settings);
+            });
+        }
+        {
+            let state_clone = state.clone();
             let available_editors_clone = available_editors.clone();
             editor_combo.connect_selected_notify(move |combo| {
                 let idx = combo.selected() as usize;
@@ -1929,6 +2014,138 @@ impl TetherUi {
         });
     }
 
+    pub fn prompt_speedbump(&self, win: crate::speedbump::ActiveWindowInfo, trigger: String) {
+        let (lang, elapsed_mins, was_mini) = {
+            let st = self.state.borrow();
+            let lang = st.settings.language.resolve();
+            let mins = st.flow.elapsed_focus_secs / 60;
+            (lang, mins, st.is_mini_hud)
+        };
+
+        let title_clean = if win.title.trim().is_empty() {
+            win.class.clone()
+        } else {
+            win.title.clone()
+        };
+
+        let heading = match lang {
+            Language::Norwegian => "Fartsdump",
+            _ => "Speedbump",
+        };
+
+        let body = match lang {
+            Language::Norwegian => format!(
+                "Du har vært i dyp flyt i {} minutter.\n\nOppdaget aktivt vindu:\n\"{}\" (matcher \"{}\")\n\nEr dette et kaninhull, eller er det relevant for oppgaven du jobber med?",
+                elapsed_mins, title_clean, trigger
+            ),
+            _ => format!(
+                "You have been in deep flow for {} minutes.\n\nDetected active window:\n\"{}\" (matches \"{}\")\n\nIs this a rabbit hole, or is it relevant to your current task?",
+                elapsed_mins, title_clean, trigger
+            ),
+        };
+
+        let alert = libadwaita::AlertDialog::builder()
+            .heading(heading)
+            .body(&body)
+            .build();
+
+        let resp_impulse = match lang {
+            Language::Norwegian => "Parkér som impuls",
+            _ => "Park as impulse",
+        };
+        let resp_relevant = match lang {
+            Language::Norwegian => "Dette er relevant",
+            _ => "This is relevant",
+        };
+        let resp_break = match lang {
+            Language::Norwegian => "Ta pause nå",
+            _ => "Take break now",
+        };
+
+        alert.add_response("impulse", resp_impulse);
+        alert.add_response("relevant", resp_relevant);
+        alert.add_response("break", resp_break);
+
+        alert.set_response_appearance("impulse", libadwaita::ResponseAppearance::Suggested);
+        alert.set_default_response(Some("impulse"));
+        alert.set_close_response("relevant");
+
+        // Send a calm notification as well
+        let notify_title = heading;
+        let notify_body = match lang {
+            Language::Norwegian => format!("Du har vært i flyt i {} minutter. Er \"{}\" et kaninhull?", elapsed_mins, trigger),
+            _ => format!("You've been in flow for {} minutes. Is \"{}\" a rabbit hole?", elapsed_mins, trigger),
+        };
+        crate::flowmodoro::notify(notify_title, &notify_body);
+
+        // Make window visible and present it so user sees the prompt
+        self.window.set_visible(true);
+        self.window.present();
+
+        let state = self.state.clone();
+        let window = self.window.clone();
+        let mini_hud_box = self.mini_hud_box.clone();
+        let ram_now_entry = self.ram_now_entry.clone();
+        let win_addr = win.address.clone();
+        let target_title = title_clean.clone();
+
+        alert.choose(Some(&self.window), None::<&gtk4::gio::Cancellable>, move |response| {
+            match response.as_str() {
+                "impulse" => {
+                    let impulse_text = format!("Sjekk: {}", target_title);
+                    {
+                        let mut st = state.borrow_mut();
+                        st.speedbump_active_prompt = false;
+                        st.impulse.input_text = impulse_text;
+                        let settings = st.settings.clone();
+                        let _ = st.impulse.capture_with_settings(&settings);
+                        st.stats.record_impulse();
+                        let _ = storage::save_user_stats(&st.stats);
+                    }
+                    crate::speedbump::refocus_editor();
+                    if was_mini {
+                        window.set_decorated(false);
+                        window.set_child(Some(&mini_hud_box));
+                        window.set_size_request(320, 44);
+                        window.set_default_size(320, 44);
+                    }
+                }
+                "relevant" => {
+                    let mut st = state.borrow_mut();
+                    st.speedbump_active_prompt = false;
+                    st.speedbump.snooze(&win_addr);
+                    if was_mini {
+                        window.set_decorated(false);
+                        window.set_child(Some(&mini_hud_box));
+                        window.set_size_request(320, 44);
+                        window.set_default_size(320, 44);
+                    }
+                }
+                "break" => {
+                    let mut st = state.borrow_mut();
+                    st.speedbump_active_prompt = false;
+                    let old_state = st.flow.state;
+                    st.flow.start_break();
+                    let new_state = st.flow.state;
+                    st.previous_state = new_state;
+                    st.audio.handle_flow_state_transition(old_state, new_state);
+                    drop(st);
+
+                    window.set_decorated(true);
+                    window.set_size_request(FULL_WINDOW_MIN_WIDTH, FULL_WINDOW_MIN_HEIGHT);
+                    window.set_default_size(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT);
+                    window.set_visible(true);
+                    window.present();
+                    ram_now_entry.grab_focus();
+                }
+                _ => {
+                    let mut st = state.borrow_mut();
+                    st.speedbump_active_prompt = false;
+                }
+            }
+        });
+    }
+
     pub fn select_impulse_file(&self) {
         if let Some(path) = storage::pick_impulse_file() {
             let path_str = path.to_string_lossy().to_string();
@@ -1978,6 +2195,9 @@ impl TetherUi {
             if old != cur {
                 st.previous_state = cur;
                 st.audio.handle_flow_state_transition(old, cur);
+                if old == FlowState::Focus && cur != FlowState::Focus {
+                    st.speedbump.reset_snooze();
+                }
 
                 // Stats update on state transition (unngå duplisering ved gjenopptatt fokus)
                 if old == FlowState::Focus && (cur == FlowState::Break || cur == FlowState::Idle) {
@@ -2032,6 +2252,27 @@ impl TetherUi {
                             return;
                         }
                         storage::EditorMinimizeAction::KeepOpen => {}
+                    }
+                }
+            }
+
+            // Speedbump check during active focus
+            if st.flow.state == FlowState::Focus && !st.speedbump_active_prompt && st.settings.speedbump_enabled {
+                if let Some(win) = crate::speedbump::get_active_window() {
+                    let trigger_opt = {
+                        let AppState { ref mut speedbump, ref settings, .. } = *st;
+                        speedbump.should_trigger(
+                            &win,
+                            settings.speedbump_enabled,
+                            settings.speedbump_cooldown_secs,
+                            &settings.speedbump_triggers,
+                        )
+                    };
+                    if let Some(trigger) = trigger_opt {
+                        st.speedbump_active_prompt = true;
+                        drop(st);
+                        self.prompt_speedbump(win, trigger);
+                        return;
                     }
                 }
             }

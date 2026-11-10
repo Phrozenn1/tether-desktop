@@ -408,7 +408,7 @@ pub fn format_time(seconds: u64) -> String {
     }
 }
 
-fn notify(title: &str, body: &str) {
+pub(crate) fn notify(title: &str, body: &str) {
     let _ = notify_rust::Notification::new()
         .appname("Tether")
         .summary(title)

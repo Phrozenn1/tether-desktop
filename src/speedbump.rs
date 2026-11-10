@@ -1,5 +1,4 @@
 use std::time::{Duration, Instant};
-use crate::storage::TetherSettings;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveWindowInfo {
@@ -26,9 +25,11 @@ impl SpeedbumpState {
     pub fn should_trigger(
         &mut self,
         window: &ActiveWindowInfo,
-        settings: &TetherSettings,
+        enabled: bool,
+        cooldown_secs: u64,
+        triggers: &[String],
     ) -> Option<String> {
-        if !settings.speedbump_enabled {
+        if !enabled {
             return None;
         }
 
@@ -45,12 +46,12 @@ impl SpeedbumpState {
             }
         }
 
-        let matched = check_speedbump_trigger(window, &settings.speedbump_triggers)?;
+        let matched = check_speedbump_trigger(window, triggers)?;
 
         // Cooldown check
         let now = Instant::now();
         if let Some(last) = self.last_trigger_instant {
-            let cooldown = Duration::from_secs(settings.speedbump_cooldown_secs.max(5));
+            let cooldown = Duration::from_secs(cooldown_secs.max(5));
             if now.duration_since(last) < cooldown {
                 return None;
             }
@@ -219,17 +220,17 @@ mod tests {
         };
 
         // First trigger should fire
-        let res1 = state.should_trigger(&win, &settings);
+        let res1 = state.should_trigger(&win, settings.speedbump_enabled, settings.speedbump_cooldown_secs, &settings.speedbump_triggers);
         assert_eq!(res1, Some("youtube".into()));
 
         // Immediate subsequent check should be throttled by cooldown
-        let res2 = state.should_trigger(&win, &settings);
+        let res2 = state.should_trigger(&win, settings.speedbump_enabled, settings.speedbump_cooldown_secs, &settings.speedbump_triggers);
         assert_eq!(res2, None);
 
         // Snooze window address
         state.snooze(&win.address);
         state.last_trigger_instant = None; // bypass cooldown to test snooze
-        let res3 = state.should_trigger(&win, &settings);
+        let res3 = state.should_trigger(&win, settings.speedbump_enabled, settings.speedbump_cooldown_secs, &settings.speedbump_triggers);
         assert_eq!(res3, None);
 
         // Another window should still trigger
@@ -239,7 +240,7 @@ mod tests {
             title: "YouTube - Something else".into(),
             workspace_name: "1".into(),
         };
-        let res4 = state.should_trigger(&win2, &settings);
+        let res4 = state.should_trigger(&win2, settings.speedbump_enabled, settings.speedbump_cooldown_secs, &settings.speedbump_triggers);
         assert_eq!(res4, Some("youtube".into()));
     }
 }
