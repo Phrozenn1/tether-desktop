@@ -9,6 +9,7 @@ mod theme;
 mod tray;
 mod ui;
 pub mod speedbump;
+pub mod dopamine;
 
 use libadwaita::prelude::*;
 use libadwaita::Application;
