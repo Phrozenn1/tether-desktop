@@ -11,6 +11,6 @@ pkgbase = tether-bin
 	provides = tether
 	conflicts = tether
 	source = tether-bin-1.1.0.tar.gz::https://github.com/Phrozenn1/tether-desktop/releases/download/v1.1.0/tether-linux-x86_64.tar.gz
-	sha256sums = dbd2bb5161717d3126df90491f533db79c583bd58e8e7c085ae1b895c6f96ad6
+	sha256sums = f611bec428ef4c0c7bd955f051512cc0ded71af10646339b83be85a5c062dc05
 
 pkgname = tether-bin

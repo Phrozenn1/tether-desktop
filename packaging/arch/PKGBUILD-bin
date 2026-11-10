@@ -10,7 +10,7 @@ depends=('gtk4' 'libadwaita' 'alsa-lib')
 provides=('tether')
 conflicts=('tether')
 source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/tether-linux-x86_64.tar.gz")
-sha256sums=('dbd2bb5161717d3126df90491f533db79c583bd58e8e7c085ae1b895c6f96ad6')
+sha256sums=('f611bec428ef4c0c7bd955f051512cc0ded71af10646339b83be85a5c062dc05')
 
 package() {
     install -Dm755 "$srcdir/tether" "$pkgdir/usr/bin/tether"
