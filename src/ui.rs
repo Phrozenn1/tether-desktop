@@ -19,7 +19,7 @@ use crate::ramdump::RamDumpState;
 use crate::storage::{self, ContextAnchor, Language, LanguageSetting, SideQuestFormat, TetherSettings, UserStats};
 
 pub const FULL_WINDOW_WIDTH: i32 = 940;
-pub const FULL_WINDOW_HEIGHT: i32 = 780;
+pub const FULL_WINDOW_HEIGHT: i32 = 840;
 pub const FULL_WINDOW_MIN_WIDTH: i32 = 900;
 pub const FULL_WINDOW_MIN_HEIGHT: i32 = 480;
 
@@ -74,6 +74,12 @@ pub struct TetherUi {
     pub mini_micro_btn: gtk4::Button,
     pub mini_audio_btn: gtk4::Button,
     pub mini_expand_btn: gtk4::Button,
+
+    // Flow soundscape widgets
+    pub flow_sound_dropdown: gtk4::DropDown,
+    pub flow_audio_btn: gtk4::Button,
+    pub flow_sound_row: ActionRow,
+    pub sound_combo: ComboRow,
 
     // Context anchor widgets
     pub anchor_group: PreferencesGroup,
@@ -312,6 +318,46 @@ impl TetherUi {
         ratio_box.append(&ratio_label);
         ratio_box.append(&today_stats_label);
         flow_box.append(&ratio_box);
+
+        // Soundscape Control (between Hero and Context Anchor)
+        let flow_sound_group = PreferencesGroup::builder()
+            .build();
+
+        let flow_sound_row = ActionRow::builder()
+            .title("Fokus-lyd")
+            .subtitle("Prosedyrisk støy for dyp konsentrasjon")
+            .build();
+
+        let sound_icon = gtk4::Image::from_icon_name("audio-x-generic-symbolic");
+        flow_sound_row.add_prefix(&sound_icon);
+
+        let sound_names = [
+            "Av",
+            "Brun støy (dyp ro)",
+            "Rosa støy (balansert)",
+            "Mildt regn",
+        ];
+        let flow_sound_dropdown = gtk4::DropDown::from_strings(&sound_names);
+        let initial_sound_idx = match initial_settings.soundscape {
+            SoundscapeType::Off => 0,
+            SoundscapeType::BrownNoise => 1,
+            SoundscapeType::PinkNoise => 2,
+            SoundscapeType::GentleRain => 3,
+        };
+        flow_sound_dropdown.set_selected(initial_sound_idx);
+        flow_sound_dropdown.set_valign(gtk4::Align::Center);
+        flow_sound_row.add_suffix(&flow_sound_dropdown);
+
+        let flow_audio_btn = gtk4::Button::builder()
+            .label("Spill av")
+            .icon_name("media-playback-start-symbolic")
+            .valign(gtk4::Align::Center)
+            .css_classes(["pill"])
+            .build();
+        flow_sound_row.add_suffix(&flow_audio_btn);
+
+        flow_sound_group.add(&flow_sound_row);
+        flow_box.append(&flow_sound_group);
 
         // Context Anchor Group
         let anchor_group = PreferencesGroup::builder()
@@ -910,6 +956,10 @@ impl TetherUi {
             mini_micro_btn,
             mini_audio_btn,
             mini_expand_btn,
+            flow_sound_dropdown: flow_sound_dropdown.clone(),
+            flow_audio_btn: flow_audio_btn.clone(),
+            flow_sound_row: flow_sound_row.clone(),
+            sound_combo: sound_combo.clone(),
             anchor_group,
             anchor_row,
             anchor_resume_btn,
@@ -1151,19 +1201,63 @@ impl TetherUi {
                 let _ = storage::save_settings(&st.settings);
             });
         }
+        // Event: Flow Sound Dropdown
         {
             let state_clone = state.clone();
-            sound_combo.connect_selected_notify(move |combo| {
-                let new_type = match combo.selected() {
+            let sound_combo_clone = sound_combo.clone();
+            flow_sound_dropdown.connect_selected_notify(move |dd| {
+                let sel = dd.selected();
+                let new_type = match sel {
                     1 => SoundscapeType::BrownNoise,
                     2 => SoundscapeType::PinkNoise,
                     3 => SoundscapeType::GentleRain,
                     _ => SoundscapeType::Off,
                 };
-                let mut st = state_clone.borrow_mut();
-                st.settings.soundscape = new_type;
-                st.audio.set_sound(new_type);
-                let _ = storage::save_settings(&st.settings);
+                {
+                    let mut st = state_clone.borrow_mut();
+                    if st.settings.soundscape != new_type {
+                        st.settings.soundscape = new_type;
+                        st.audio.set_sound(new_type);
+                        let _ = storage::save_settings(&st.settings);
+                    }
+                }
+                if sound_combo_clone.selected() != sel {
+                    sound_combo_clone.set_selected(sel);
+                }
+            });
+        }
+
+        // Event: Flow Audio Play/Pause Button
+        {
+            let ui_clone = ui.clone();
+            flow_audio_btn.connect_clicked(move |_| {
+                ui_clone.toggle_audio();
+            });
+        }
+
+        // Event: Settings Sound Combo (Keep in sync with flow sound dropdown)
+        {
+            let state_clone = state.clone();
+            let flow_sound_dropdown_clone = flow_sound_dropdown.clone();
+            sound_combo.connect_selected_notify(move |combo| {
+                let sel = combo.selected();
+                let new_type = match sel {
+                    1 => SoundscapeType::BrownNoise,
+                    2 => SoundscapeType::PinkNoise,
+                    3 => SoundscapeType::GentleRain,
+                    _ => SoundscapeType::Off,
+                };
+                {
+                    let mut st = state_clone.borrow_mut();
+                    if st.settings.soundscape != new_type {
+                        st.settings.soundscape = new_type;
+                        st.audio.set_sound(new_type);
+                        let _ = storage::save_settings(&st.settings);
+                    }
+                }
+                if flow_sound_dropdown_clone.selected() != sel {
+                    flow_sound_dropdown_clone.set_selected(sel);
+                }
             });
         }
         {
@@ -1865,19 +1959,35 @@ impl TetherUi {
             }
         }
 
-        // Audio button state in header and Mini-HUD
+        // Audio button state in header, Mini-HUD and Flow tab
         if st.audio.is_playing {
             self.audio_btn.set_icon_name("media-playback-pause-symbolic");
             self.audio_btn.add_css_class("accent");
             self.mini_audio_btn.remove_css_class("mini-audio-btn-stopped");
             self.mini_audio_btn.add_css_class("mini-audio-btn-playing");
             self.mini_audio_btn.set_tooltip_text(Some("Stopp fokus-lyd"));
+
+            self.flow_audio_btn.set_icon_name("media-playback-pause-symbolic");
+            self.flow_audio_btn.set_label("Pause");
+            self.flow_audio_btn.add_css_class("accent");
+            let sound_name = match st.audio.current_type {
+                SoundscapeType::BrownNoise => "Brun støy (dyp ro)",
+                SoundscapeType::PinkNoise => "Rosa støy (balansert)",
+                SoundscapeType::GentleRain => "Mildt regn",
+                _ => "Fokus-lyd",
+            };
+            self.flow_sound_row.set_subtitle(&format!("Spiller nå: {}", sound_name));
         } else {
             self.audio_btn.set_icon_name("audio-volume-high-symbolic");
             self.audio_btn.remove_css_class("accent");
             self.mini_audio_btn.remove_css_class("mini-audio-btn-playing");
             self.mini_audio_btn.add_css_class("mini-audio-btn-stopped");
             self.mini_audio_btn.set_tooltip_text(Some("Start fokus-lyd"));
+
+            self.flow_audio_btn.set_icon_name("media-playback-start-symbolic");
+            self.flow_audio_btn.set_label("Spill av");
+            self.flow_audio_btn.remove_css_class("accent");
+            self.flow_sound_row.set_subtitle("Prosedyrisk støy for dyp konsentrasjon");
         }
 
         // Editor integration state & UI visibility
@@ -2038,19 +2148,51 @@ impl TetherUi {
     }
 
     pub fn toggle_audio(&self) {
-        let is_playing = {
+        let (is_playing, current_type) = {
             let mut st = self.state.borrow_mut();
+            if !st.audio.is_playing && st.audio.current_type == SoundscapeType::Off {
+                st.audio.set_sound(SoundscapeType::BrownNoise);
+                st.settings.soundscape = SoundscapeType::BrownNoise;
+                let _ = storage::save_settings(&st.settings);
+            }
             st.audio.toggle_play();
-            st.audio.is_playing
+            (st.audio.is_playing, st.audio.current_type)
         };
+        let sound_idx = match current_type {
+            SoundscapeType::Off => 0,
+            SoundscapeType::BrownNoise => 1,
+            SoundscapeType::PinkNoise => 2,
+            SoundscapeType::GentleRain => 3,
+        };
+        if self.flow_sound_dropdown.selected() != sound_idx {
+            self.flow_sound_dropdown.set_selected(sound_idx);
+        }
+        if self.sound_combo.selected() != sound_idx {
+            self.sound_combo.set_selected(sound_idx);
+        }
+
         if is_playing {
             self.mini_audio_btn.remove_css_class("mini-audio-btn-stopped");
             self.mini_audio_btn.add_css_class("mini-audio-btn-playing");
             self.mini_audio_btn.set_tooltip_text(Some("Stopp fokus-lyd"));
+            self.flow_audio_btn.set_icon_name("media-playback-pause-symbolic");
+            self.flow_audio_btn.set_label("Pause");
+            self.flow_audio_btn.add_css_class("accent");
+            let sound_name = match current_type {
+                SoundscapeType::BrownNoise => "Brun støy (dyp ro)",
+                SoundscapeType::PinkNoise => "Rosa støy (balansert)",
+                SoundscapeType::GentleRain => "Mildt regn",
+                _ => "Fokus-lyd",
+            };
+            self.flow_sound_row.set_subtitle(&format!("Spiller nå: {}", sound_name));
         } else {
             self.mini_audio_btn.remove_css_class("mini-audio-btn-playing");
             self.mini_audio_btn.add_css_class("mini-audio-btn-stopped");
             self.mini_audio_btn.set_tooltip_text(Some("Start fokus-lyd"));
+            self.flow_audio_btn.set_icon_name("media-playback-start-symbolic");
+            self.flow_audio_btn.set_label("Spill av");
+            self.flow_audio_btn.remove_css_class("accent");
+            self.flow_sound_row.set_subtitle("Prosedyrisk støy for dyp konsentrasjon");
         }
     }
 
