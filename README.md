@@ -153,3 +153,11 @@ Key state files:
   - *Ocean Waves:* Based on ambient surf recording ([CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/))
   - *Mountain Brook:* Based on Okanagan Mountain snowmelt stream recording ([CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/))
   - *Forest Wind:* Based on Roland R-07 tripod woodland recording by Robert EA Harvey ([CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/))
+
+---
+
+## 🔬 Scientific Foundation & Research Rationale
+
+Every design decision and workflow mechanic in Tether is engineered directly from peer-reviewed literature in cognitive neuroscience, executive dysfunction, stochastic resonance, and attention restoration theory:
+
+👉 **Read the full scientific foundation:** [**`RESEARCH.md` — Scientific Rationale & Neurodivergent Research Foundation**](RESEARCH.md) *(50 peer-reviewed citations, neurobiological models, and empirical analyses)*.
