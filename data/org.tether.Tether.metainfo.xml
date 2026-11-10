@@ -30,6 +30,17 @@
     <binary>tether</binary>
   </provides>
   <releases>
+    <release version="1.2.0" date="2026-11-10">
+      <description>
+        <p>Major feature release introducing Fartsdump (Soft Interceptor) to protect ADHD deep flow.</p>
+        <ul>
+          <li>Real-time background distraction detection during active focus sessions.</li>
+          <li>Dedicated centered desktop prompt (org.tether.Speedbump) appearing directly on the active workspace.</li>
+          <li>Quick 1-key actions: "Parkér som impuls" (Enter) to auto-save rabbit holes and refocus editor, "Dette er relevant" (Esc) to snooze, and "Ta pause nå" to bank and take break.</li>
+          <li>Customizable distraction triggers list, cooldown duration, and master toggle in the Settings tab.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.1" date="2026-11-10">
       <description>
         <p>User interface polish, calm typography, and dedicated focus soundscape section.</p>
