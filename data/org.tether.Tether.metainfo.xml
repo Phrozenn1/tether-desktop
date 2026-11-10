@@ -4,14 +4,15 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>Tether</name>
-  <summary>ADHD Flowmodoro and impulse-parking companion for developers</summary>
+  <summary>Neurodivergent Flowmodoro and cognitive anchoring companion for developers</summary>
   <description>
     <p>
-      Tether is an unbreakable Flowmodoro and impulse-parking companion designed
-      specifically for developers with ADHD. It calculates proportional breaks
-      based on your actual focus time, parks sudden rabbit-hole thoughts into RAM-dumps
-      or Side-Quests without breaking your flow, and seamlessly synchronizes with
-      Neovim and VS Code.
+      Tether is an unbreakable Flowmodoro and cognitive anchoring companion designed
+      specifically for neurodivergent developers (ADHD, Autism, Dyslexia, and AuDHD). It calculates
+      proportional breaks based on your actual focus time without disrupting monotropic flow,
+      parks sudden rabbit-hole thoughts into RAM-dumps and impulse checklists without breaking
+      fragile working memory, anchors your code context for instant recovery, and seamlessly synchronizes
+      with Neovim and VS Code.
     </p>
   </description>
   <developer id="phrozenn.no">

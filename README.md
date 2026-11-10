@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)](https://github.com/Phrozenn1/tether-desktop)
 
-### Cross-Platform Flowmodoro Timer, RAM-Dump & ADHD Workflow Engine for Developers
+### Cross-Platform Flowmodoro Timer, RAM-Dump & Cognitive Anchor for Neurodivergent Developers
 
-**Tether** is an unbreakable desktop companion built in **Rust** with **GTK4** and **Libadwaita** following GNOME Human Interface Guidelines (HIG). Designed specifically to mitigate the core cognitive friction points of ADHD: **executive dysfunction**, **working memory decay**, **hyperfocus interruption**, and **shame-based streak habits**.
+**Tether** is an unbreakable desktop companion built in **Rust** with **GTK4** and **Libadwaita** following GNOME Human Interface Guidelines (HIG). Designed specifically to mitigate the core cognitive friction points experienced across the neurodivergent spectrum (**ADHD**, **Autism/ASD**, **Dyslexia**, and **AuDHD**): **executive dysfunction**, **working memory decay**, **hyperfocus & monotropic attention disruption**, **autistic transition inertia**, **phonological overload**, and **shame-based streak habits**.
 
 Tether runs natively and seamlessly across **Linux** (GNOME, KDE Plasma, Hyprland, Sway, X11, Wayland), **macOS**, and **Windows**, featuring deep bi-directional synchronization with **Neovim** ([`tether.nvim`](https://github.com/Phrozenn1/tether.nvim)) and **VS Code** ([`tether-vscode`](https://github.com/Phrozenn1/tether-vscode)).
 
@@ -171,4 +171,4 @@ Key state files:
 
 Every design decision and workflow mechanic in Tether is engineered directly from peer-reviewed literature in cognitive neuroscience, executive dysfunction, stochastic resonance, and attention restoration theory:
 
-👉 **Read the full scientific foundation:** [**`RESEARCH.md` — Scientific Rationale & Neurodivergent Research Foundation**](RESEARCH.md) *(50 peer-reviewed citations, neurobiological models, and empirical analyses)*.
+👉 **Read the full scientific foundation:** [**`RESEARCH.md` — Scientific Rationale & Neurodivergent Research Foundation**](RESEARCH.md) *(72 peer-reviewed citations, neurobiological models, and empirical analyses covering ADHD, Autism, and Dyslexia)*.

@@ -2,7 +2,7 @@
 pkgname=tether
 pkgver=1.1.0
 pkgrel=1
-pkgdesc="ADHD Flowmodoro & Brain-Dump Companion for developers"
+pkgdesc="Neurodivergent Flowmodoro & Cognitive Anchor for developers (ADHD, Autism, Dyslexia)"
 arch=('x86_64')
 url="https://github.com/Phrozenn1/tether-desktop"
 license=('MIT')
