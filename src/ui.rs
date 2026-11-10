@@ -19,7 +19,7 @@ use crate::ramdump::RamDumpState;
 use crate::storage::{self, ContextAnchor, Language, LanguageSetting, SideQuestFormat, TetherSettings, UserStats};
 
 pub const FULL_WINDOW_WIDTH: i32 = 940;
-pub const FULL_WINDOW_HEIGHT: i32 = 840;
+pub const FULL_WINDOW_HEIGHT: i32 = 890;
 pub const FULL_WINDOW_MIN_WIDTH: i32 = 900;
 pub const FULL_WINDOW_MIN_HEIGHT: i32 = 480;
 
@@ -50,6 +50,7 @@ pub struct TetherUi {
     pub state: Rc<RefCell<AppState>>,
     pub window: gtk4::ApplicationWindow,
     pub main_box: gtk4::Box,
+    pub flow_box: gtk4::Box,
     pub mini_hud_box: gtk4::Box,
     pub css_provider: gtk4::CssProvider,
 
@@ -1190,6 +1191,7 @@ impl TetherUi {
             state: state.clone(),
             window: window.clone(),
             main_box,
+            flow_box: flow_box.clone(),
             mini_hud_box,
             css_provider,
             status_badge,
@@ -1897,15 +1899,41 @@ impl TetherUi {
         }
 
         ui.window.present();
+
+        {
+            let ui_clone = ui.clone();
+            glib::idle_add_local_once(move || {
+                if !ui_clone.state.borrow().is_mini_hud {
+                    let full_h = ui_clone.natural_full_height();
+                    ui_clone.window.set_default_size(FULL_WINDOW_WIDTH, full_h);
+                    #[cfg(target_os = "linux")]
+                    {
+                        storage::resize_window(FULL_WINDOW_WIDTH, full_h);
+                    }
+                }
+            });
+        }
+
         ui
     }
 
+    pub fn natural_full_height(&self) -> i32 {
+        let header_h = self
+            .main_box
+            .first_child()
+            .map(|w| w.measure(gtk4::Orientation::Vertical, FULL_WINDOW_WIDTH).1)
+            .unwrap_or(48);
+        let (_, flow_nat_h, _, _) = self.flow_box.measure(gtk4::Orientation::Vertical, FULL_WINDOW_WIDTH);
+        (header_h + flow_nat_h).max(FULL_WINDOW_HEIGHT)
+    }
+
     pub fn set_mini_hud_mode(&self, is_mini: bool) {
+        let full_h = self.natural_full_height();
         if is_mini {
             // Save full window position before shrinking (validated & clamped)
             if let Some((cur_x, cur_y)) = storage::get_tether_window_pos() {
                 let locked = self.state.borrow().settings.locked_monitor.clone();
-                let clamped = storage::clamp_full_window_pos(cur_x, cur_y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &locked);
+                let clamped = storage::clamp_full_window_pos(cur_x, cur_y, FULL_WINDOW_WIDTH, full_h, &locked);
                 let mut st = self.state.borrow_mut();
                 st.settings.custom_pos_full = Some(clamped);
                 let _ = storage::save_settings(&st.settings);
@@ -1954,29 +1982,29 @@ impl TetherUi {
                 let (target_x, target_y) = {
                     let st = self.state.borrow();
                     if let Some((x, y)) = st.settings.custom_pos_full {
-                        storage::clamp_full_window_pos(x, y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
+                        storage::clamp_full_window_pos(x, y, FULL_WINDOW_WIDTH, full_h, &st.settings.locked_monitor)
                     } else {
-                        storage::get_centered_full_pos(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
+                        storage::get_centered_full_pos(FULL_WINDOW_WIDTH, full_h, &st.settings.locked_monitor)
                     }
                 };
                 // Move and resize window BEFORE setting full content so it doesn't jump or expand off-screen
                 storage::move_window_to_pos(target_x, target_y);
-                storage::resize_window(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT);
+                storage::resize_window(FULL_WINDOW_WIDTH, full_h);
             }
 
             self.window.set_size_request(FULL_WINDOW_MIN_WIDTH, FULL_WINDOW_MIN_HEIGHT);
             self.window.set_decorated(true);
             self.window.set_child(Some(&self.main_box));
-            self.window.set_default_size(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT);
+            self.window.set_default_size(FULL_WINDOW_WIDTH, full_h);
 
             #[cfg(target_os = "linux")]
             {
                 let (target_x, target_y) = {
                     let st = self.state.borrow();
                     if let Some((x, y)) = st.settings.custom_pos_full {
-                        storage::clamp_full_window_pos(x, y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
+                        storage::clamp_full_window_pos(x, y, FULL_WINDOW_WIDTH, full_h, &st.settings.locked_monitor)
                     } else {
-                        storage::get_centered_full_pos(FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &st.settings.locked_monitor)
+                        storage::get_centered_full_pos(FULL_WINDOW_WIDTH, full_h, &st.settings.locked_monitor)
                     }
                 };
                 storage::move_window_to_pos(target_x, target_y);
@@ -2624,7 +2652,8 @@ impl TetherUi {
                                 }
                             }
                         } else {
-                            let (clamped_x, clamped_y) = storage::clamp_full_window_pos(cur_x, cur_y, FULL_WINDOW_WIDTH, FULL_WINDOW_HEIGHT, &locked_mon);
+                            let full_h = self.natural_full_height();
+                            let (clamped_x, clamped_y) = storage::clamp_full_window_pos(cur_x, cur_y, FULL_WINDOW_WIDTH, full_h, &locked_mon);
                             if cur_y >= 30 && (clamped_x - cur_x).abs() <= 50 && (clamped_y - cur_y).abs() <= 50 {
                                 let should_save = match st.settings.custom_pos_full {
                                     Some((old_x, old_y)) => (clamped_x - old_x).abs() > 4 || (clamped_y - old_y).abs() > 4,
