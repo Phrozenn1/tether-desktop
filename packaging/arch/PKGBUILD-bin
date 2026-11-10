@@ -1,6 +1,6 @@
 # Maintainer: Phrozenn <kim@phrozenn.no>
 pkgname=tether-bin
-pkgver=1.2.0
+pkgver=1.3.0
 pkgrel=1
 pkgdesc="Humane Flowmodoro, focus soundscapes & cognitive companion for deep work (binary release)"
 arch=('x86_64')
@@ -10,7 +10,7 @@ depends=('gtk4' 'libadwaita' 'alsa-lib')
 provides=('tether')
 conflicts=('tether')
 source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/tether-linux-x86_64.tar.gz")
-sha256sums=('01e54d1152ed9d9703827fe229f7086b8469149ad8e53d676056891e6cb82ed7')
+sha256sums=('974f6247bc4d02dae69dc92e1519833467a61d299e1822b96101bf04765041a2')
 
 package() {
     install -Dm755 "$srcdir/tether" "$pkgdir/usr/bin/tether"
