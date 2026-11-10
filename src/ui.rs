@@ -34,6 +34,7 @@ pub struct AppState {
     pub ramdump: RamDumpState,
     pub speedbump: crate::speedbump::SpeedbumpState,
     pub speedbump_active_prompt: bool,
+    pub dopamine: crate::dopamine::DopamineAccount,
     pub last_update: Instant,
     pub last_anchor_check: Instant,
     pub last_stats_check: Instant,
@@ -155,6 +156,7 @@ impl TetherUi {
         }
 
         let initial_theme_mtime = crate::theme::get_colors_mtime();
+        let dopamine = crate::dopamine::load_dopamine_account();
 
         let state = Rc::new(RefCell::new(AppState {
             flow,
@@ -167,6 +169,7 @@ impl TetherUi {
             ramdump,
             speedbump,
             speedbump_active_prompt: false,
+            dopamine,
             last_update: Instant::now(),
             last_anchor_check: Instant::now(),
             last_stats_check: Instant::now(),
@@ -2059,6 +2062,8 @@ impl TetherUi {
                             let settings = st.settings.clone();
                             let _ = st.impulse.capture_with_settings(&settings);
                             st.stats.record_impulse();
+                            st.dopamine.earn_impulse_shield_bonus();
+                            let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
                             let _ = storage::save_user_stats(&st.stats);
                         }
                         crate::speedbump::refocus_editor();
@@ -2167,6 +2172,18 @@ impl TetherUi {
 
             let old = st.previous_state;
             let cur = st.flow.state;
+
+            // Kontinuerlig opptjening av dopaminpoeng under aktiv fokus (1p per 5 min)
+            if cur == FlowState::Focus {
+                let earned = st.dopamine.record_focus_millis(
+                    dt.as_millis() as u64,
+                    crate::dopamine::DEFAULT_MILLIS_PER_DOPAMINE_POINT,
+                );
+                if earned > 0 {
+                    let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
+                }
+            }
+
             if old != cur {
                 st.previous_state = cur;
                 st.audio.handle_flow_state_transition(old, cur);
@@ -2185,7 +2202,14 @@ impl TetherUi {
                     }
                 } else if old == FlowState::MicroStart && cur == FlowState::Focus {
                     st.stats.record_micro_start();
+                    st.dopamine.earn_micro_start_bonus();
+                    let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
                     let _ = storage::save_user_stats(&st.stats);
+                }
+
+                // Lagre dopaminkonto ved overgang fra fokus til pause/idle
+                if old == FlowState::Focus {
+                    let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
                 }
 
                 // Maksimer/vis hovedvinduet automatisk når man tar pause så man enkelt kan ta RAM-dump eller skrive impulser
@@ -2650,6 +2674,8 @@ impl TetherUi {
             let settings = st.settings.clone();
             let _ = st.impulse.capture_with_settings(&settings);
             st.stats.record_impulse();
+            st.dopamine.earn_impulse_shield_bonus();
+            let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
             let _ = storage::save_user_stats(&st.stats);
         }
         self.refresh_impulses_list();

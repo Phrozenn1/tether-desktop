@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::storage::get_data_dir;
 
 pub const DEFAULT_SECS_PER_DOPAMINE_POINT: u64 = 300; // 5 minutes = 1 point
+pub const DEFAULT_MILLIS_PER_DOPAMINE_POINT: u64 = 300_000; // 5 minutes = 300,000 ms
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -56,7 +57,8 @@ pub struct DopamineAccount {
     pub total_spent: u32,
     pub rewards: Vec<RewardItem>,
     pub redemptions: Vec<RewardRedemption>,
-    pub accrued_focus_secs: u64,
+    #[serde(default)]
+    pub accrued_focus_millis: u64,
 }
 
 fn now_epoch() -> u64 {
@@ -80,7 +82,7 @@ impl DopamineAccount {
             total_spent: 0,
             rewards: Self::default_rewards(),
             redemptions: Vec::new(),
-            accrued_focus_secs: 0,
+            accrued_focus_millis: 0,
         }
     }
 
@@ -141,17 +143,23 @@ impl DopamineAccount {
         self.balance
     }
 
-    /// Record elapsed focus seconds. Every `secs_per_point` yields 1 dopamine point.
+    /// Record elapsed focus milliseconds. Every `millis_per_point` yields 1 dopamine point.
     /// Returns the number of new points earned in this update.
-    pub fn record_focus_time(&mut self, delta_secs: u64, secs_per_point: u64) -> u32 {
-        let step = secs_per_point.max(60);
-        self.accrued_focus_secs = self.accrued_focus_secs.saturating_add(delta_secs);
-        let earned = (self.accrued_focus_secs / step) as u32;
+    pub fn record_focus_millis(&mut self, delta_millis: u64, millis_per_point: u64) -> u32 {
+        let step = millis_per_point.max(10_000);
+        self.accrued_focus_millis = self.accrued_focus_millis.saturating_add(delta_millis);
+        let earned = (self.accrued_focus_millis / step) as u32;
         if earned > 0 {
-            self.accrued_focus_secs %= step;
+            self.accrued_focus_millis %= step;
             self.earn_points(earned);
         }
         earned
+    }
+
+    /// Record elapsed focus seconds. Every `secs_per_point` yields 1 dopamine point.
+    /// Returns the number of new points earned in this update.
+    pub fn record_focus_time(&mut self, delta_secs: u64, secs_per_point: u64) -> u32 {
+        self.record_focus_millis(delta_secs * 1000, secs_per_point * 1000)
     }
 
     /// Bonus for completing a 5-minute Micro-Start (+1 point)
@@ -269,7 +277,7 @@ mod tests {
         assert_eq!(acc.balance, 0);
         assert_eq!(acc.total_earned, 0);
         assert_eq!(acc.total_spent, 0);
-        assert_eq!(acc.accrued_focus_secs, 0);
+        assert_eq!(acc.accrued_focus_millis, 0);
         assert!(acc.rewards.len() >= 6);
     }
 
@@ -284,17 +292,17 @@ mod tests {
         let earned = acc.record_focus_time(300, 300);
         assert_eq!(earned, 1);
         assert_eq!(acc.balance, 6);
-        assert_eq!(acc.accrued_focus_secs, 0);
+        assert_eq!(acc.accrued_focus_millis, 0);
 
-        // Sub-interval accumulation: 150s + 150s = 300s -> 1 point
-        let e1 = acc.record_focus_time(150, 300);
+        // Sub-interval accumulation: 150_000ms + 150_000ms = 300_000ms -> 1 point
+        let e1 = acc.record_focus_millis(150_000, 300_000);
         assert_eq!(e1, 0);
-        assert_eq!(acc.accrued_focus_secs, 150);
+        assert_eq!(acc.accrued_focus_millis, 150_000);
 
-        let e2 = acc.record_focus_time(150, 300);
+        let e2 = acc.record_focus_millis(150_000, 300_000);
         assert_eq!(e2, 1);
         assert_eq!(acc.balance, 7);
-        assert_eq!(acc.accrued_focus_secs, 0);
+        assert_eq!(acc.accrued_focus_millis, 0);
     }
 
     #[test]
