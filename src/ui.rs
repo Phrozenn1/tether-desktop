@@ -78,7 +78,7 @@ pub struct TetherUi {
     // Flow soundscape widgets
     pub flow_sound_dropdown: gtk4::DropDown,
     pub flow_audio_btn: gtk4::Button,
-    pub flow_vol_btn: gtk4::MenuButton,
+    pub flow_vol_btn: gtk4::Button,
     pub flow_vol_scale: gtk4::Scale,
     pub flow_vol_label: gtk4::Label,
     pub flow_sound_row: ActionRow,
@@ -352,11 +352,10 @@ impl TetherUi {
         flow_sound_dropdown.set_valign(gtk4::Align::Center);
         flow_sound_row.add_suffix(&flow_sound_dropdown);
 
-        // Volume Popover MenuButton
+        // Volume Popover Button
         let initial_vol_pct = (initial_settings.soundscape_volume * 100.0).clamp(0.0, 100.0) as f64;
-        let flow_vol_btn = gtk4::MenuButton::builder()
+        let flow_vol_btn = gtk4::Button::builder()
             .icon_name(Self::volume_icon_name(initial_vol_pct))
-            .direction(gtk4::ArrowType::Left)
             .tooltip_text("Lydstyrke (relativt til musikk/system)")
             .valign(gtk4::Align::Center)
             .css_classes(["flat", "circular"])
@@ -364,7 +363,8 @@ impl TetherUi {
 
         let flow_vol_popover = gtk4::Popover::builder()
             .autohide(true)
-            .position(gtk4::PositionType::Left)
+            .position(gtk4::PositionType::Bottom)
+            .has_arrow(false)
             .build();
 
         let popover_box = gtk4::Box::builder()
@@ -374,6 +374,7 @@ impl TetherUi {
             .margin_bottom(10)
             .margin_start(12)
             .margin_end(12)
+            .width_request(260)
             .build();
 
         let popover_header = gtk4::Box::builder()
@@ -455,7 +456,25 @@ impl TetherUi {
         popover_box.append(&presets_box);
 
         flow_vol_popover.set_child(Some(&popover_box));
-        flow_vol_btn.set_popover(Some(&flow_vol_popover));
+        flow_vol_popover.set_parent(&flow_sound_row);
+
+        // Click to toggle popover under focus-sound box with right edges aligned
+        {
+            let flow_vol_popover_clone = flow_vol_popover.clone();
+            let flow_sound_row_clone = flow_sound_row.clone();
+            flow_vol_btn.connect_clicked(move |_| {
+                if flow_vol_popover_clone.is_visible() {
+                    flow_vol_popover_clone.popdown();
+                } else {
+                    let row_w = flow_sound_row_clone.width();
+                    let row_h = flow_sound_row_clone.height();
+                    let pop_w = 260;
+                    let rect = gtk4::gdk::Rectangle::new(row_w - pop_w, row_h, pop_w, 1);
+                    flow_vol_popover_clone.set_pointing_to(Some(&rect));
+                    flow_vol_popover_clone.popup();
+                }
+            });
+        }
 
         let flow_audio_btn = gtk4::Button::builder()
             .icon_name("media-playback-start-symbolic")
