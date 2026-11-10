@@ -340,14 +340,14 @@ impl TetherUi {
             "Brun støy (dyp ro)",
             "Rosa støy (balansert)",
             "Mildt regn",
+            "Grønn støy (skånsom/skog)",
+            "40 Hz Gamma-puls (dyp fokus)",
+            "Rullende havbølger",
+            "Sildrende fjellbekk",
+            "Skogsvind (sus i tretopper)",
         ];
         let flow_sound_dropdown = gtk4::DropDown::from_strings(&sound_names);
-        let initial_sound_idx = match initial_settings.soundscape {
-            SoundscapeType::Off => 0,
-            SoundscapeType::BrownNoise => 1,
-            SoundscapeType::PinkNoise => 2,
-            SoundscapeType::GentleRain => 3,
-        };
+        let initial_sound_idx = initial_settings.soundscape.to_index();
         flow_sound_dropdown.set_selected(initial_sound_idx);
         flow_sound_dropdown.set_valign(gtk4::Align::Center);
         flow_sound_row.add_suffix(&flow_sound_dropdown);
@@ -736,13 +736,13 @@ impl TetherUi {
             "Brun støy (dyp ro)",
             "Rosa støy (balansert)",
             "Mildt regn",
+            "Grønn støy (skånsom/skog)",
+            "40 Hz Gamma-puls (dyp fokus)",
+            "Rullende havbølger",
+            "Sildrende fjellbekk",
+            "Skogsvind (sus i tretopper)",
         ]);
-        let selected_sound_idx = match initial_settings.soundscape {
-            SoundscapeType::Off => 0,
-            SoundscapeType::BrownNoise => 1,
-            SoundscapeType::PinkNoise => 2,
-            SoundscapeType::GentleRain => 3,
-        };
+        let selected_sound_idx = initial_settings.soundscape.to_index();
         let sound_combo = ComboRow::builder()
             .title("Lydtype")
             .model(&sound_models)
@@ -1356,12 +1356,7 @@ impl TetherUi {
             let sound_combo_clone = sound_combo.clone();
             flow_sound_dropdown.connect_selected_notify(move |dd| {
                 let sel = dd.selected();
-                let new_type = match sel {
-                    1 => SoundscapeType::BrownNoise,
-                    2 => SoundscapeType::PinkNoise,
-                    3 => SoundscapeType::GentleRain,
-                    _ => SoundscapeType::Off,
-                };
+                let new_type = SoundscapeType::from_index(sel);
                 {
                     let mut st = state_clone.borrow_mut();
                     if st.settings.soundscape != new_type {
@@ -1460,12 +1455,7 @@ impl TetherUi {
             let flow_sound_dropdown_clone = flow_sound_dropdown.clone();
             sound_combo.connect_selected_notify(move |combo| {
                 let sel = combo.selected();
-                let new_type = match sel {
-                    1 => SoundscapeType::BrownNoise,
-                    2 => SoundscapeType::PinkNoise,
-                    3 => SoundscapeType::GentleRain,
-                    _ => SoundscapeType::Off,
-                };
+                let new_type = SoundscapeType::from_index(sel);
                 {
                     let mut st = state_clone.borrow_mut();
                     if st.settings.soundscape != new_type {
@@ -2189,12 +2179,7 @@ impl TetherUi {
             self.flow_audio_btn.set_icon_name("media-playback-pause-symbolic");
             self.flow_audio_btn.set_tooltip_text(Some("Pause fokus-lyd"));
             self.flow_audio_btn.add_css_class("accent");
-            let sound_name = match st.audio.current_type {
-                SoundscapeType::BrownNoise => "Brun støy (dyp ro)",
-                SoundscapeType::PinkNoise => "Rosa støy (balansert)",
-                SoundscapeType::GentleRain => "Mildt regn",
-                _ => "Fokus-lyd",
-            };
+            let sound_name = st.audio.current_type.label_no();
             self.flow_sound_row.set_subtitle(&format!("Spiller nå: {}", sound_name));
         } else {
             self.audio_btn.set_icon_name("audio-volume-high-symbolic");
@@ -2377,12 +2362,7 @@ impl TetherUi {
             st.audio.toggle_play();
             (st.audio.is_playing, st.audio.current_type)
         };
-        let sound_idx = match current_type {
-            SoundscapeType::Off => 0,
-            SoundscapeType::BrownNoise => 1,
-            SoundscapeType::PinkNoise => 2,
-            SoundscapeType::GentleRain => 3,
-        };
+        let sound_idx = current_type.to_index();
         if self.flow_sound_dropdown.selected() != sound_idx {
             self.flow_sound_dropdown.set_selected(sound_idx);
         }
@@ -2397,12 +2377,7 @@ impl TetherUi {
             self.flow_audio_btn.set_icon_name("media-playback-pause-symbolic");
             self.flow_audio_btn.set_tooltip_text(Some("Pause fokus-lyd"));
             self.flow_audio_btn.add_css_class("accent");
-            let sound_name = match current_type {
-                SoundscapeType::BrownNoise => "Brun støy (dyp ro)",
-                SoundscapeType::PinkNoise => "Rosa støy (balansert)",
-                SoundscapeType::GentleRain => "Mildt regn",
-                _ => "Fokus-lyd",
-            };
+            let sound_name = current_type.label_no();
             self.flow_sound_row.set_subtitle(&format!("Spiller nå: {}", sound_name));
         } else {
             self.mini_audio_btn.remove_css_class("mini-audio-btn-playing");

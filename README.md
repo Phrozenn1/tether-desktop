@@ -29,9 +29,14 @@ Overcome *task-initiation paralysis* by lowering the psychological barrier to en
 
 ### 3. 🎧 Procedural Offline Focus Soundscapes
 Scientifically proven auditory masking generated mathematically directly in Rust via `rodio` with **zero network requests, zero external audio files, and <0.1% CPU usage**:
-- **Brown Noise:** Deep, soothing, low-frequency rumble. Ideal for chronic tinnitus masking and heavy concentration.
-- **Pink Noise:** Balanced, waterfall-like spectrum for steady mental focus.
-- **Gentle Rain:** Soft natural rhythm to ease anxiety and mental restlessness.
+- **Brown Noise (Brun støy):** Deep, soothing low-frequency rumble for heavy concentration and masking tinnitus/office noise.
+- **Pink Noise (Rosa støy):** Balanced $1/f$ waterfall spectrum for steady, sustained cognitive throughput.
+- **Gentle Rain (Mildt regn):** Soft organic shower with gentle micro-bursts easing restless nervous tension.
+- **Green Noise (Grønn støy):** Calming mid-frequency nature band centered around ~500 Hz (filtering harsh highs and muddy subs), soothing for misophonia and hyperacusis.
+- **40 Hz Gamma Pulse (40 Hz Gamma-puls):** Calming brown noise carrier amplitude-modulated at 40 Hz for neural gamma entrainment, anchoring executive attention in ADHD brains.
+- **Rolling Ocean Waves (Rullende havbølger):** Rhythmic ~8.5s surf cycles with swell buildup, cresting wash, and receding foam sweeping decorrelated across the stereo panorama.
+- **Mountain Brook (Sildrende fjellbekk):** Cascading clear water bed coupled with organic resonant bubble droplets trickling over rounded stones.
+- **Forest Wind (Skogsvind):** Organic chaotic breeze swaying deep air currents and whispering through pine-needle treetop canopies.
 - **In-Row Controls on Flow Tab:** Instant soundscape dropdown, alternating play/pause button (`▶` / `⏸`), and speaker button opening a flush-right volume popover.
 - **Relative Gain / Volume:** Stream gain is designed to play quietly alongside your background music or podcasts without taking over your system master volume.
 - **Auto-Play:** Automatically starts playback when entering focus and smoothly fades down when taking a break.
