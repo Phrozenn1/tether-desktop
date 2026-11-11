@@ -34,11 +34,14 @@ jobs:
       - name: Build and publish WinUI application
         run: |
           cargo build --manifest-path core/Cargo.toml --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet publish windows/Tether.WinUI/Tether.WinUI.csproj `
             --configuration Release `
             --runtime win-x64 `
             --self-contained true `
             --output tether-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path tether-windows)) { throw "WinUI publish output was not created." }
           Compress-Archive -Path tether-windows/* -DestinationPath tether-windows-winui-preview-x86_64.zip -Force
 
       - name: Upload Windows executable
