@@ -126,11 +126,15 @@ brew install gtk4 libadwaita pkg-config
 cargo build --release
 ```
 
-### Windows (.exe / MSYS2)
+### Windows
+
+The current full-featured Windows package is built with GTK through MSYS2. A separate WinUI 3 preview is being developed with native Windows controls and the shared Rust timer core. Build the preview on Windows with the .NET 8 SDK, Rust MSVC toolchain, and Windows 10 SDK:
+
 ```bash
-pacman -S mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita
-cargo build --release
+dotnet publish windows/Tether.WinUI/Tether.WinUI.csproj -c Release -r win-x64 --self-contained true
 ```
+
+The WinUI preview currently ports the focus timer only; use the GTK package for the remaining desktop features until the port reaches feature parity.
 
 ---
 

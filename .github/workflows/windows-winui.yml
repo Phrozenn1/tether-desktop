@@ -1,0 +1,48 @@
+name: Windows WinUI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - core/**
+      - windows/Tether.WinUI/**
+      - .github/workflows/windows-winui.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-winui:
+    name: Build Windows WinUI preview
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build and publish WinUI application
+        run: |
+          cargo build --manifest-path core/Cargo.toml --release
+          dotnet publish windows/Tether.WinUI/Tether.WinUI.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --output tether-windows
+          Compress-Archive -Path tether-windows/* -DestinationPath tether-windows-winui-preview-x86_64.zip -Force
+
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: tether-windows-winui-preview
+          path: tether-windows-winui-preview-x86_64.zip

@@ -1,1 +1,4 @@
 /target
+/windows/Tether.WinUI/bin
+/windows/Tether.WinUI/obj
+/tether-windows

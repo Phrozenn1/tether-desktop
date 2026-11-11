@@ -1,0 +1,1586 @@
+use serde::{Deserialize, Serialize};
+use std::fs::{create_dir_all, OpenOptions};
+use std::io::{Read, Write};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Language {
+    #[serde(rename = "no")]
+    Norwegian,
+    #[serde(rename = "en")]
+    English,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LanguageSetting {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "no")]
+    Norwegian,
+    #[serde(rename = "en")]
+    English,
+}
+
+impl Default for Language {
+    fn default() -> Self {
+        detect_system_locale()
+    }
+}
+
+impl Default for LanguageSetting {
+    fn default() -> Self {
+        LanguageSetting::Auto
+    }
+}
+
+impl LanguageSetting {
+    pub fn resolve(&self) -> Language {
+        match self {
+            LanguageSetting::Auto => detect_system_locale(),
+            LanguageSetting::Norwegian => Language::Norwegian,
+            LanguageSetting::English => Language::English,
+        }
+    }
+}
+
+pub fn detect_system_locale() -> Language {
+    for name in system_locale_names() {
+        let lower = name.to_lowercase();
+        if lower.starts_with("nb") || lower.starts_with("nn") || lower.starts_with("no") {
+            return Language::Norwegian;
+        }
+    }
+
+    Language::English
+}
+
+fn system_locale_names() -> Vec<String> {
+    let names = ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"]
+        .into_iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .flat_map(|value| value.split(':').map(str::to_owned).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+
+    #[cfg(target_os = "windows")]
+    let names = {
+        let mut names = names;
+        let mut buffer = [0u16; 85];
+        let length = unsafe {
+            GetUserDefaultLocaleName(buffer.as_mut_ptr(), buffer.len() as i32)
+        };
+        if length > 1 {
+            names.push(String::from_utf16_lossy(&buffer[..(length - 1) as usize]));
+        }
+        names
+    };
+
+    names
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetUserDefaultLocaleName(locale_name: *mut u16, count: i32) -> i32;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SideQuestFormat {
+    #[serde(rename = "markdown_checkbox")]
+    MarkdownCheckbox,
+    #[serde(rename = "markdown_bullet")]
+    MarkdownBullet,
+    #[serde(rename = "todo_txt")]
+    TodoTxt,
+    #[serde(rename = "json")]
+    Json,
+}
+
+impl Default for SideQuestFormat {
+    fn default() -> Self {
+        SideQuestFormat::MarkdownCheckbox
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MiniHudPlacement {
+    #[serde(rename = "floating")]
+    Floating,
+    #[serde(rename = "top_right")]
+    TopRight,
+    #[serde(rename = "bottom_right")]
+    BottomRight,
+    #[serde(rename = "top_left")]
+    TopLeft,
+    #[serde(rename = "bottom_left")]
+    BottomLeft,
+    #[serde(rename = "top_center")]
+    TopCenter,
+    #[serde(rename = "bottom_center")]
+    BottomCenter,
+}
+
+impl Default for MiniHudPlacement {
+    fn default() -> Self {
+        MiniHudPlacement::Floating
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CompletedCleanup {
+    #[serde(rename = "1_hour", alias = "one_hour")]
+    OneHour,
+    #[default]
+    #[serde(rename = "1_day", alias = "one_day")]
+    OneDay,
+    #[serde(rename = "1_week", alias = "one_week")]
+    OneWeek,
+    #[serde(rename = "keep", alias = "behold")]
+    Keep,
+}
+
+impl CompletedCleanup {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            CompletedCleanup::OneHour => "1 time",
+            CompletedCleanup::OneDay => "1 dag",
+            CompletedCleanup::OneWeek => "1 uke",
+            CompletedCleanup::Keep => "Behold (aldri slette)",
+        }
+    }
+
+    pub fn max_age_duration(&self) -> Option<chrono::Duration> {
+        match self {
+            CompletedCleanup::OneHour => Some(chrono::Duration::hours(1)),
+            CompletedCleanup::OneDay => Some(chrono::Duration::days(1)),
+            CompletedCleanup::OneWeek => Some(chrono::Duration::weeks(1)),
+            CompletedCleanup::Keep => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorMinimizeAction {
+    #[serde(rename = "tray")]
+    Tray,
+    #[serde(rename = "mini_hud")]
+    MiniHud,
+    #[serde(rename = "keep_open")]
+    KeepOpen,
+}
+
+impl Default for EditorMinimizeAction {
+    fn default() -> Self {
+        EditorMinimizeAction::Tray
+    }
+}
+
+impl EditorMinimizeAction {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            EditorMinimizeAction::Tray => "Minimer til system-tray (skjul vindu)",
+            EditorMinimizeAction::MiniHud => "Minimer til Mini-HUD (lite hjørnevindu)",
+            EditorMinimizeAction::KeepOpen => "Ikke minimer (behold fullt vindu)",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TetherSettings {
+    #[serde(default)]
+    pub language: LanguageSetting,
+    #[serde(default = "default_focus_ratio")]
+    pub ratio_focus: u32,
+    #[serde(default = "default_break_ratio")]
+    pub ratio_break: u32,
+    #[serde(default = "default_side_quests_file")]
+    pub side_quests_file: String,
+    #[serde(default)]
+    pub side_quests_format: SideQuestFormat,
+    #[serde(default = "default_impulse_cleanup")]
+    pub impulse_cleanup: CompletedCleanup,
+    #[serde(default)]
+    pub editor_type: crate::editor::EditorType,
+    #[serde(default)]
+    pub auto_launch_desktop: bool,
+    #[serde(default)]
+    pub editor_minimize_action: Option<EditorMinimizeAction>,
+    #[serde(default)]
+    pub editor_minimize_map: std::collections::HashMap<String, EditorMinimizeAction>,
+    #[serde(default)]
+    pub nvim_plugin_manager: crate::editor::NvimPluginManager,
+    #[serde(default = "default_terminal_command")]
+    pub terminal_command: String,
+    #[serde(default = "default_true")]
+    pub notifications_enabled: bool,
+    #[serde(default = "default_true")]
+    pub remind_ramdump: bool,
+    #[serde(default = "default_locked_monitor")]
+    pub locked_monitor: String,
+    #[serde(default)]
+    pub custom_pos_mini: Option<(i32, i32)>,
+    #[serde(default)]
+    pub custom_pos_full: Option<(i32, i32)>,
+    #[serde(default)]
+    pub mini_hud_placement: MiniHudPlacement,
+    #[serde(default = "default_soundscape")]
+    pub soundscape: crate::audio::SoundscapeType,
+    #[serde(default = "default_soundscape_volume")]
+    pub soundscape_volume: f32,
+    #[serde(default = "default_true")]
+    pub soundscape_auto_play: bool,
+    #[serde(default = "default_true")]
+    pub speedbump_enabled: bool,
+    #[serde(default = "default_speedbump_cooldown")]
+    pub speedbump_cooldown_secs: u64,
+    #[serde(default = "default_speedbump_triggers")]
+    pub speedbump_triggers: Vec<String>,
+}
+
+fn default_focus_ratio() -> u32 { 45 }
+fn default_break_ratio() -> u32 { 15 }
+fn default_impulse_cleanup() -> CompletedCleanup { CompletedCleanup::OneDay }
+fn default_true() -> bool { true }
+fn default_locked_monitor() -> String { "auto".to_string() }
+fn default_terminal_command() -> String { "xdg-terminal-exec nvim".to_string() }
+fn default_soundscape() -> crate::audio::SoundscapeType { crate::audio::SoundscapeType::Off }
+fn default_soundscape_volume() -> f32 { 0.45 }
+fn default_speedbump_cooldown() -> u64 { 60 }
+fn default_speedbump_triggers() -> Vec<String> {
+    vec![
+        "reddit".to_string(),
+        "youtube".to_string(),
+        "twitter".to_string(),
+        "x.com".to_string(),
+        "instagram".to_string(),
+        "facebook".to_string(),
+        "tiktok".to_string(),
+        "twitch".to_string(),
+        "discord".to_string(),
+        "steam".to_string(),
+    ]
+}
+fn default_side_quests_file() -> String {
+    get_data_dir().join("impulses.md").to_string_lossy().to_string()
+}
+
+impl Default for TetherSettings {
+    fn default() -> Self {
+        Self {
+            language: LanguageSetting::Auto,
+            ratio_focus: 45,
+            ratio_break: 15,
+            side_quests_file: default_side_quests_file(),
+            side_quests_format: SideQuestFormat::MarkdownCheckbox,
+            impulse_cleanup: CompletedCleanup::OneDay,
+            editor_type: crate::editor::EditorType::Auto,
+            auto_launch_desktop: false,
+            editor_minimize_action: None,
+            editor_minimize_map: std::collections::HashMap::new(),
+            nvim_plugin_manager: crate::editor::NvimPluginManager::Lazy,
+            terminal_command: default_terminal_command(),
+            notifications_enabled: true,
+            remind_ramdump: true,
+            locked_monitor: default_locked_monitor(),
+            custom_pos_mini: None,
+            custom_pos_full: None,
+            mini_hud_placement: MiniHudPlacement::Floating,
+            soundscape: default_soundscape(),
+            soundscape_volume: default_soundscape_volume(),
+            soundscape_auto_play: true,
+            speedbump_enabled: true,
+            speedbump_cooldown_secs: 60,
+            speedbump_triggers: default_speedbump_triggers(),
+        }
+    }
+}
+
+impl TetherSettings {
+    pub fn get_minimize_action_for_editor(&self, editor: crate::editor::EditorType) -> EditorMinimizeAction {
+        let key = editor.id();
+        if let Some(act) = self.editor_minimize_map.get(key) {
+            return *act;
+        }
+        self.editor_minimize_action.unwrap_or(EditorMinimizeAction::Tray)
+    }
+
+    pub fn set_minimize_action_for_editor(&mut self, editor: crate::editor::EditorType, action: EditorMinimizeAction) {
+        let key = editor.id();
+        self.editor_minimize_map.insert(key.to_string(), action);
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SharedFlowState {
+    pub state: String,
+    pub start_epoch: u64,
+    pub break_duration_sec: u64,
+    pub elapsed_focus_sec: u64,
+    pub remaining_break_sec: u64,
+    #[serde(default)]
+    pub banked_break_sec: u64,
+    pub focus_ratio: u32,
+    pub break_ratio: u32,
+    pub writer: String,
+    pub seq: u64,
+    pub timestamp: u64,
+}
+
+pub fn get_data_dir() -> PathBuf {
+    if let Some(state_dir) = dirs::state_dir() {
+        state_dir.join("tether")
+    } else if let Some(data_dir) = dirs::data_dir() {
+        data_dir.join("tether")
+    } else {
+        PathBuf::from(".tether")
+    }
+}
+
+pub fn ensure_data_dir() -> Result<PathBuf, std::io::Error> {
+    let dir = get_data_dir();
+    create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+pub fn get_config_dir() -> PathBuf {
+    if let Some(config_dir) = dirs::config_dir() {
+        config_dir.join("tether")
+    } else {
+        PathBuf::from(".config/tether")
+    }
+}
+
+pub fn resolve_path(path_str: &str) -> PathBuf {
+    let trimmed = path_str.trim();
+    if trimmed.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(trimmed.trim_start_matches("~/"));
+        }
+    } else if trimmed == "~" {
+        if let Some(home) = dirs::home_dir() {
+            return home;
+        }
+    }
+    PathBuf::from(trimmed)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorInfo {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub scale: f64,
+    pub focused: bool,
+}
+
+impl MonitorInfo {
+    pub fn logical_width(&self) -> f64 {
+        if self.scale > 0.0 {
+            self.width / self.scale
+        } else {
+            self.width
+        }
+    }
+
+    pub fn logical_height(&self) -> f64 {
+        if self.scale > 0.0 {
+            self.height / self.scale
+        } else {
+            self.height
+        }
+    }
+
+    pub fn mini_hud_pos(&self) -> (i32, i32) {
+        let x = self.x + self.logical_width() - 284.0;
+        let y = self.y + 48.0;
+        (x as i32, y as i32)
+    }
+
+    pub fn expanded_center_pos(&self) -> (i32, i32) {
+        let x = self.x + (self.logical_width() / 2.0) - 230.0;
+        let y = self.y + (self.logical_height() / 2.0) - 290.0;
+        (x as i32, y as i32)
+    }
+
+    pub fn display_label(&self) -> String {
+        let desc = if !self.description.is_empty() {
+            format!(" ({})", self.description)
+        } else {
+            String::new()
+        };
+        format!(
+            "{} — {}x{}{}",
+            self.name,
+            self.logical_width() as i32,
+            self.logical_height() as i32,
+            desc
+        )
+    }
+}
+
+pub fn get_available_monitors() -> Vec<MonitorInfo> {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            if let Ok(out) = std::process::Command::new("hyprctl")
+                .args(["monitors", "-j"])
+                .output()
+            {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                    if let Some(arr) = val.as_array() {
+                        return arr
+                            .iter()
+                            .filter_map(|m| {
+                                let name = m["name"].as_str()?.to_string();
+                                let description = m["description"].as_str().unwrap_or("").to_string();
+                                let id = m["id"].as_i64().unwrap_or(0);
+                                let x = m["x"].as_f64().unwrap_or(0.0);
+                                let y = m["y"].as_f64().unwrap_or(0.0);
+                                let width = m["width"].as_f64().unwrap_or(1920.0);
+                                let height = m["height"].as_f64().unwrap_or(1080.0);
+                                let scale = m["scale"].as_f64().unwrap_or(1.0);
+                                let focused = m["focused"].as_bool().unwrap_or(false);
+                                Some(MonitorInfo {
+                                    id,
+                                    name,
+                                    description,
+                                    x,
+                                    y,
+                                    width,
+                                    height,
+                                    scale,
+                                    focused,
+                                })
+                            })
+                            .collect();
+                    }
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+pub fn get_target_monitor(locked_mon: &str) -> Option<MonitorInfo> {
+    let monitors = get_available_monitors();
+    if monitors.is_empty() {
+        return None;
+    }
+    if locked_mon == "auto" || locked_mon.is_empty() {
+        if let Some(focused) = monitors.iter().find(|m| m.focused) {
+            return Some(focused.clone());
+        }
+        return monitors.first().cloned();
+    }
+    if let Some(m) = monitors.iter().find(|m| m.name == locked_mon) {
+        return Some(m.clone());
+    }
+    monitors.first().cloned()
+}
+
+impl MiniHudPlacement {
+    pub fn calculate_pos(&self, settings: &TetherSettings) -> Option<(i32, i32)> {
+        match self {
+            MiniHudPlacement::Floating => {
+                if let Some(pos) = settings.custom_pos_mini {
+                    return Some(pos);
+                }
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + mon.logical_width() - 320.0 - 24.0;
+                let y = mon.y + 48.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::TopRight => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + mon.logical_width() - 320.0 - 24.0;
+                let y = mon.y + 48.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::BottomRight => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + mon.logical_width() - 320.0 - 24.0;
+                let y = mon.y + mon.logical_height() - 44.0 - 24.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::TopLeft => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + 24.0;
+                let y = mon.y + 48.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::BottomLeft => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + 24.0;
+                let y = mon.y + mon.logical_height() - 44.0 - 24.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::TopCenter => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + (mon.logical_width() - 320.0) / 2.0;
+                let y = mon.y + 48.0;
+                Some((x as i32, y as i32))
+            }
+            MiniHudPlacement::BottomCenter => {
+                let mon = get_target_monitor(&settings.locked_monitor)?;
+                let x = mon.x + (mon.logical_width() - 320.0) / 2.0;
+                let y = mon.y + mon.logical_height() - 44.0 - 24.0;
+                Some((x as i32, y as i32))
+            }
+        }
+    }
+}
+
+pub fn ensure_pinned(pinned: bool) {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            if let Ok(out) = std::process::Command::new("hyprctl").args(["clients", "-j"]).output() {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                    if let Some(arr) = val.as_array() {
+                        for client in arr {
+                            let class = client.get("class").and_then(|c| c.as_str()).unwrap_or("");
+                            if class == "org.tether.Tether" || class == "tether" {
+                                let is_currently_pinned = client.get("pinned").and_then(|p| p.as_bool()).unwrap_or(false);
+                                if is_currently_pinned != pinned {
+                                    let _ = std::process::Command::new("hyprctl")
+                                        .args(["dispatch", "hl.dsp.window.pin({ window = \"class:org.tether.Tether\" })"])
+                                        .output();
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn load_settings() -> TetherSettings {
+    let file = get_config_dir().join("config.json");
+    if let Ok(bytes) = std::fs::read(&file) {
+        if let Ok(settings) = serde_json::from_slice::<TetherSettings>(&bytes) {
+            return settings;
+        }
+    }
+    let default = TetherSettings::default();
+    let _ = save_settings(&default);
+    default
+}
+
+pub fn save_settings(settings: &TetherSettings) -> Result<(), std::io::Error> {
+    let dir = get_config_dir();
+    create_dir_all(&dir)?;
+    let file = dir.join("config.json");
+    let json = serde_json::to_string_pretty(settings)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(file, json)?;
+    Ok(())
+}
+
+pub fn save_shared_state(state: &SharedFlowState) -> Result<(), std::io::Error> {
+    let dir = ensure_data_dir()?;
+    let file_path = dir.join("flow_state.json");
+    let json = serde_json::to_string_pretty(state)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(file_path, json)?;
+    Ok(())
+}
+
+pub fn load_shared_state() -> Option<SharedFlowState> {
+    let dir = get_data_dir();
+    let file_path = dir.join("flow_state.json");
+    if let Ok(bytes) = std::fs::read(file_path) {
+        if let Ok(state) = serde_json::from_slice::<SharedFlowState>(&bytes) {
+            return Some(state);
+        }
+    }
+    None
+}
+
+// Side-Quests med format-støtte
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonTask {
+    pub timestamp: String,
+    pub text: String,
+    pub done: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImpulseItem {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub done: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+}
+
+pub fn parse_timestamp(s: &str) -> Option<chrono::DateTime<chrono::Local>> {
+    let s = s.trim();
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return dt.and_local_timezone(chrono::Local).single();
+    }
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M") {
+        return dt.and_local_timezone(chrono::Local).single();
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        if let Some(dt) = d.and_hms_opt(23, 59, 59) {
+            return dt.and_local_timezone(chrono::Local).single();
+        }
+    }
+    None
+}
+
+pub fn parse_markdown_checkbox_line(line: &str) -> ImpulseItem {
+    let trimmed = line.trim();
+    let (done, rest) = if let Some(r) = trimmed.strip_prefix("- [ ]")
+        .or_else(|| trimmed.strip_prefix("* [ ]"))
+        .or_else(|| trimmed.strip_prefix("+ [ ]")) {
+        (false, r.trim())
+    } else if let Some(r) = trimmed.strip_prefix("- [x]")
+        .or_else(|| trimmed.strip_prefix("- [X]"))
+        .or_else(|| trimmed.strip_prefix("* [x]"))
+        .or_else(|| trimmed.strip_prefix("* [X]"))
+        .or_else(|| trimmed.strip_prefix("+ [x]"))
+        .or_else(|| trimmed.strip_prefix("+ [X]")) {
+        (true, r.trim())
+    } else if let Some(r) = trimmed.strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* ")) {
+        (false, r.trim())
+    } else {
+        (false, trimmed)
+    };
+
+    let mut content = rest.to_string();
+    let mut completed_at = None;
+
+    if let Some(done_pos) = content.rfind("[done:") {
+        if let Some(end_bracket) = content[done_pos..].find(']') {
+            let actual_end = done_pos + end_bracket;
+            let time_part = content[done_pos + 6..actual_end].trim();
+            completed_at = Some(time_part.to_string());
+            let before = content[..done_pos].trim_end();
+            let after = content[actual_end + 1..].trim_start();
+            content = if after.is_empty() {
+                before.to_string()
+            } else {
+                format!("{} {}", before, after)
+            };
+        }
+    }
+
+    let mut created_at = None;
+    if content.starts_with('[') {
+        if let Some(bracket_end) = content.find(']') {
+            let candidate = content[1..bracket_end].trim();
+            if candidate.chars().any(|c| c.is_ascii_digit()) && candidate.contains('-') {
+                created_at = Some(candidate.to_string());
+                content = content[bracket_end + 1..].trim().to_string();
+            }
+        }
+    }
+
+    ImpulseItem {
+        text: content,
+        created_at,
+        done,
+        completed_at,
+    }
+}
+
+pub fn parse_todotxt_line(line: &str) -> ImpulseItem {
+    let trimmed = line.trim();
+    if let Some(rest) = trimmed.strip_prefix("x ") {
+        let parts: Vec<&str> = rest.split_whitespace().collect();
+        let (completed_at, text_part) = if !parts.is_empty() && parts[0].contains('-') {
+            (Some(parts[0].to_string()), parts[1..].join(" "))
+        } else {
+            (None, rest.to_string())
+        };
+        ImpulseItem {
+            text: text_part,
+            created_at: None,
+            done: true,
+            completed_at,
+        }
+    } else {
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        let mut idx = 0;
+        if idx < parts.len() && parts[idx].starts_with('(') && parts[idx].ends_with(')') {
+            idx += 1;
+        }
+        let created_at = if idx < parts.len() && parts[idx].contains('-') {
+            let d = parts[idx].to_string();
+            idx += 1;
+            Some(d)
+        } else {
+            None
+        };
+        let text = parts[idx..].join(" ");
+        ImpulseItem {
+            text: if text.is_empty() { trimmed.to_string() } else { text },
+            created_at,
+            done: false,
+            completed_at: None,
+        }
+    }
+}
+
+pub fn format_impulse_line(item: &ImpulseItem, format: SideQuestFormat) -> String {
+    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+    let created = item.created_at.as_deref().unwrap_or(&now_str);
+    match format {
+        SideQuestFormat::MarkdownCheckbox => {
+            if item.done {
+                let completed = item.completed_at.as_deref().unwrap_or(&now_str);
+                format!("- [x] [{}] {} [done:{}]", created, item.text, completed)
+            } else {
+                format!("- [ ] [{}] {}", created, item.text)
+            }
+        }
+        SideQuestFormat::MarkdownBullet => {
+            if item.done {
+                let completed = item.completed_at.as_deref().unwrap_or(&now_str);
+                format!("- [x] [{}] {} [done:{}]", created, item.text, completed)
+            } else {
+                format!("- [{}] {}", created, item.text)
+            }
+        }
+        SideQuestFormat::TodoTxt => {
+            let created_date = if created.len() >= 10 { &created[..10] } else { &now_str[..10] };
+            if item.done {
+                let comp_str = item.completed_at.as_deref().unwrap_or(&now_str);
+                let comp_date = if comp_str.len() >= 10 { &comp_str[..10] } else { &now_str[..10] };
+                format!("x {} (B) {} {} +sidequest", comp_date, created_date, item.text)
+            } else {
+                format!("(B) {} {} +sidequest", created_date, item.text)
+            }
+        }
+        SideQuestFormat::Json => String::new(),
+    }
+}
+
+fn load_json_tasks(path: &PathBuf) -> Vec<JsonTask> {
+    if let Ok(bytes) = std::fs::read(path) {
+        if let Ok(tasks) = serde_json::from_slice::<Vec<JsonTask>>(&bytes) {
+            return tasks;
+        }
+    }
+    Vec::new()
+}
+
+fn save_json_tasks(path: &PathBuf, tasks: &[JsonTask]) -> Result<(), std::io::Error> {
+    let json = serde_json::to_string_pretty(tasks)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+pub fn load_raw_structured_impulses(settings: &TetherSettings) -> Vec<ImpulseItem> {
+    let file_path = resolve_path(&settings.side_quests_file);
+    if settings.side_quests_format == SideQuestFormat::Json {
+        let tasks = load_json_tasks(&file_path);
+        return tasks
+            .into_iter()
+            .map(|t| ImpulseItem {
+                text: t.text,
+                created_at: Some(t.timestamp),
+                done: t.done,
+                completed_at: t.completed_at,
+            })
+            .collect();
+    }
+
+    if let Ok(mut file) = std::fs::File::open(&file_path) {
+        let mut content = String::new();
+        if file.read_to_string(&mut content).is_ok() {
+            return content
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|line| match settings.side_quests_format {
+                    SideQuestFormat::MarkdownCheckbox | SideQuestFormat::MarkdownBullet => {
+                        parse_markdown_checkbox_line(line)
+                    }
+                    SideQuestFormat::TodoTxt => parse_todotxt_line(line),
+                    SideQuestFormat::Json => unreachable!(),
+                })
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+pub fn save_structured_impulses(settings: &TetherSettings, items: &[ImpulseItem]) -> Result<(), std::io::Error> {
+    let file_path = resolve_path(&settings.side_quests_file);
+    if let Some(parent) = file_path.parent() {
+        create_dir_all(parent)?;
+    }
+
+    if settings.side_quests_format == SideQuestFormat::Json {
+        let tasks: Vec<JsonTask> = items
+            .iter()
+            .map(|item| JsonTask {
+                timestamp: item
+                    .created_at
+                    .clone()
+                    .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
+                text: item.text.clone(),
+                done: item.done,
+                completed_at: item.completed_at.clone(),
+            })
+            .collect();
+        return save_json_tasks(&file_path, &tasks);
+    }
+
+    let mut file = std::fs::File::create(&file_path)?;
+    for item in items {
+        writeln!(file, "{}", format_impulse_line(item, settings.side_quests_format))?;
+    }
+    Ok(())
+}
+
+pub fn load_structured_impulses_with_cleanup(settings: &TetherSettings) -> Vec<ImpulseItem> {
+    let mut items = load_raw_structured_impulses(settings);
+    let now = chrono::Local::now();
+    let max_age = settings.impulse_cleanup.max_age_duration();
+
+    if let Some(max_age) = max_age {
+        let initial_len = items.len();
+        items.retain(|item| {
+            if !item.done {
+                return true;
+            }
+            if let Some(comp_str) = &item.completed_at {
+                if let Some(dt) = parse_timestamp(comp_str) {
+                    let age = now.signed_duration_since(dt);
+                    if age >= max_age {
+                        return false;
+                    }
+                }
+            } else if let Some(created_str) = &item.created_at {
+                if let Some(dt) = parse_timestamp(created_str) {
+                    let age = now.signed_duration_since(dt);
+                    if age >= max_age {
+                        return false;
+                    }
+                }
+            }
+            true
+        });
+
+        if items.len() != initial_len {
+            let _ = save_structured_impulses(settings, &items);
+        }
+    }
+
+    items
+}
+
+pub fn toggle_impulse_done(settings: &TetherSettings, index: usize, done: bool) -> Result<(), std::io::Error> {
+    let mut items = load_raw_structured_impulses(settings);
+    if index < items.len() {
+        items[index].done = done;
+        if done {
+            items[index].completed_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string());
+        } else {
+            items[index].completed_at = None;
+        }
+        save_structured_impulses(settings, &items)?;
+    }
+    Ok(())
+}
+
+pub fn append_impulse_with_settings(settings: &TetherSettings, text: &str) -> Result<(), std::io::Error> {
+    let mut items = load_raw_structured_impulses(settings);
+    items.push(ImpulseItem {
+        text: text.to_string(),
+        created_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
+        done: false,
+        completed_at: None,
+    });
+    save_structured_impulses(settings, &items)
+}
+
+pub fn load_impulses_with_settings(settings: &TetherSettings) -> Vec<String> {
+    load_structured_impulses_with_cleanup(settings)
+        .into_iter()
+        .map(|item| format_impulse_line(&item, settings.side_quests_format))
+        .collect()
+}
+
+pub fn save_all_impulses_with_settings(settings: &TetherSettings, items: &[String]) -> Result<(), std::io::Error> {
+    let structured: Vec<ImpulseItem> = items
+        .iter()
+        .map(|s| match settings.side_quests_format {
+            SideQuestFormat::MarkdownCheckbox | SideQuestFormat::MarkdownBullet => {
+                parse_markdown_checkbox_line(s)
+            }
+            SideQuestFormat::TodoTxt => parse_todotxt_line(s),
+            SideQuestFormat::Json => ImpulseItem {
+                text: s.clone(),
+                created_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
+                done: false,
+                completed_at: None,
+            },
+        })
+        .collect();
+    save_structured_impulses(settings, &structured)
+}
+
+// Bakoverkompatibilitet
+pub fn append_impulse(text: &str) -> Result<(), std::io::Error> {
+    let settings = load_settings();
+    append_impulse_with_settings(&settings, text)
+}
+
+pub fn load_impulses() -> Vec<String> {
+    let settings = load_settings();
+    load_impulses_with_settings(&settings)
+}
+
+pub fn save_all_impulses(items: &[String]) -> Result<(), std::io::Error> {
+    let settings = load_settings();
+    save_all_impulses_with_settings(&settings, items)
+}
+
+// RAM-Dump
+pub fn append_ramdump(now: &str, status: &str, next_step: &str) -> Result<(), std::io::Error> {
+    let dir = ensure_data_dir()?;
+    let file_path = dir.join("ramdumps.md");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file_path)?;
+
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    writeln!(file, "--- PAUSE / SAVE-STATE ({}) ---", timestamp)?;
+    writeln!(file, "[NÅ]:         {}", now)?;
+    writeln!(file, "[STATUS]:     {}", status)?;
+    writeln!(file, "[NESTE STEG]: {}", next_step)?;
+    writeln!(file, "--------------------------------------------\n")?;
+    Ok(())
+}
+
+pub fn load_last_ramdump() -> Option<(String, String, String, String)> {
+    let dir = get_data_dir();
+    let file_path = dir.join("ramdumps.md");
+    if let Ok(mut file) = std::fs::File::open(file_path) {
+        let mut content = String::new();
+        if file.read_to_string(&mut content).is_ok() {
+            let blocks: Vec<&str> = content.split("--- PAUSE / SAVE-STATE").collect();
+            if let Some(last) = blocks.last() {
+                if !last.trim().is_empty() {
+                    let mut time = String::new();
+                    let mut now = String::new();
+                    let mut status = String::new();
+                    let mut next = String::new();
+
+                    for line in last.lines() {
+                        if line.contains('(') && line.contains(')') {
+                            time = line.trim_matches(|c| c != '(' && c != ')').trim_matches(|c| c == '(' || c == ')').to_string();
+                        } else if let Some(stripped) = line.strip_prefix("[NÅ]:") {
+                            now = stripped.trim().to_string();
+                        } else if let Some(stripped) = line.strip_prefix("[STATUS]:") {
+                            status = stripped.trim().to_string();
+                        } else if let Some(stripped) = line.strip_prefix("[NESTE STEG]:") {
+                            next = stripped.trim().to_string();
+                        }
+                    }
+
+                    if !now.is_empty() || !status.is_empty() {
+                        return Some((time, now, status, next));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn get_tether_window_pos() -> Option<(i32, i32)> {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+            if let Ok(out) = std::process::Command::new("hyprctl")
+                .args(["clients", "-j"])
+                .output()
+            {
+                if out.status.success() {
+                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                        if let Some(arr) = val.as_array() {
+                            for client in arr {
+                                let class = client.get("class").and_then(|c| c.as_str()).unwrap_or("");
+                                if class == "org.tether.Tether" || class == "tether" {
+                                    if let Some(at) = client.get("at").and_then(|a| a.as_array()) {
+                                        if at.len() == 2 {
+                                            if let (Some(x), Some(y)) = (at[0].as_i64(), at[1].as_i64()) {
+                                                return Some((x as i32, y as i32));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn move_window_to_pos(x: i32, y: i32) {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            let move_cmd = format!(
+                "hl.dsp.window.move({{ x = {}, y = {}, window = \"class:org.tether.Tether\" }})",
+                x, y
+            );
+            let _ = std::process::Command::new("hyprctl")
+                .args(["dispatch", &move_cmd])
+                .output();
+        }
+    }
+}
+
+pub fn resize_window(w: i32, h: i32) {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            let cmd = format!(
+                "hl.dsp.window.resize({{ x = {}, y = {}, relative = false, window = \"class:org.tether.Tether\" }})",
+                w, h
+            );
+            let _ = std::process::Command::new("hyprctl")
+                .args(["dispatch", &cmd])
+                .output();
+        }
+    }
+}
+
+pub fn clamp_full_window_pos(
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    locked_mon: &str,
+) -> (i32, i32) {
+    if let Some(mon) = get_target_monitor(locked_mon) {
+        let min_x = mon.x as i32 + 16;
+        let max_x = (mon.x + mon.logical_width()) as i32 - width - 16;
+        let min_y = mon.y as i32 + 36; // Keep clear of top bar
+        let max_y = (mon.y + mon.logical_height()) as i32 - height - 16;
+
+        let clamped_x = if max_x > min_x {
+            x.clamp(min_x, max_x)
+        } else {
+            (mon.x as i32) + ((mon.logical_width() as i32 - width) / 2)
+        };
+
+        let clamped_y = if max_y > min_y {
+            y.clamp(min_y, max_y)
+        } else {
+            (mon.y as i32) + ((mon.logical_height() as i32 - height) / 2)
+        };
+
+        (clamped_x, clamped_y)
+    } else {
+        (x.max(16), y.max(36))
+    }
+}
+
+pub fn get_centered_full_pos(width: i32, height: i32, locked_mon: &str) -> (i32, i32) {
+    if let Some(mon) = get_target_monitor(locked_mon) {
+        let x = (mon.x as i32) + ((mon.logical_width() as i32 - width) / 2);
+        let y = (mon.y as i32) + ((mon.logical_height() as i32 - height) / 2);
+        (x, y)
+    } else {
+        (400, 180)
+    }
+}
+
+// Neovim Deteksjon og Fokus
+pub fn is_neovim_running() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(output) = std::process::Command::new("pgrep").args(["-x", "nvim"]).output() {
+            if !output.stdout.is_empty() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub fn open_or_focus_neovim(terminal_cmd: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        // Hvis nvim kjører under Hyprland, prøv å fokusere vinduet
+        if let Ok(output) = std::process::Command::new("hyprctl").args(["clients", "-j"]).output() {
+            if let Ok(clients) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                if let Some(arr) = clients.as_array() {
+                    let nvim_client = arr.iter().find(|c| {
+                        let class = c["class"].as_str().unwrap_or("").to_lowercase();
+                        let title = c["title"].as_str().unwrap_or("").to_lowercase();
+                        class.contains("nvim") || title.contains("nvim") || class.contains("neovim")
+                    });
+                    if let Some(c) = nvim_client {
+                        let address = c["address"].as_str().unwrap_or("");
+                        let dispatch_arg = format!("hl.dsp.focus({{ window = \"address:{}\" }})", address);
+                        let _ = std::process::Command::new("hyprctl")
+                            .args(["dispatch", &dispatch_arg])
+                            .output();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // Hvis ikke åpen, start ny terminal med nvim
+    let parts: Vec<&str> = terminal_cmd.split_whitespace().collect();
+    if !parts.is_empty() {
+        let _ = std::process::Command::new(parts[0])
+            .args(&parts[1..])
+            .spawn();
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EditorFocusState {
+    #[serde(default)]
+    pub editor: String,
+    #[serde(default)]
+    pub focused: bool,
+    #[serde(default)]
+    pub pid: u32,
+    #[serde(default)]
+    pub timestamp: i64,
+    #[serde(default)]
+    pub server_name: String,
+}
+
+pub fn get_editor_focus_file() -> PathBuf {
+    get_data_dir().join("editor_focus.json")
+}
+
+pub fn load_editor_focus() -> Option<EditorFocusState> {
+    let path = get_editor_focus_file();
+    if let Ok(bytes) = std::fs::read(path) {
+        if let Ok(state) = serde_json::from_slice::<EditorFocusState>(&bytes) {
+            return Some(state);
+        }
+    }
+    None
+}
+
+pub fn is_pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new(&format!("/proc/{}", pid)).exists()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid)])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(true)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        true
+    }
+}
+
+pub fn get_focused_editor_from_state() -> Option<crate::editor::EditorType> {
+    let focus = load_editor_focus()?;
+    if !focus.focused {
+        return None;
+    }
+    if !is_pid_alive(focus.pid) {
+        return None;
+    }
+    let now = chrono::Utc::now().timestamp();
+    if (now - focus.timestamp).abs() > 15 * 60 {
+        return None;
+    }
+
+    match focus.editor.to_lowercase().as_str() {
+        "nvim" | "neovim" => Some(crate::editor::EditorType::Neovim),
+        "code" | "vscode" => Some(crate::editor::EditorType::VSCode),
+        "vscodium" | "codium" => Some(crate::editor::EditorType::VSCodium),
+        "cursor" => Some(crate::editor::EditorType::Cursor),
+        "neovide" => Some(crate::editor::EditorType::Neovide),
+        "helix" | "hx" => Some(crate::editor::EditorType::Helix),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ContextAnchor {
+    #[serde(default)]
+    pub timestamp: u64,
+    #[serde(default)]
+    pub project_name: String,
+    #[serde(default)]
+    pub project_path: String,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(default)]
+    pub file_path: String,
+    #[serde(default)]
+    pub relative_path: String,
+    #[serde(default)]
+    pub line: usize,
+    #[serde(default)]
+    pub col: usize,
+    #[serde(default)]
+    pub last_note: String,
+    #[serde(default)]
+    pub server_name: String,
+}
+
+pub fn get_context_anchor_file() -> PathBuf {
+    get_data_dir().join("context_anchor.json")
+}
+
+pub fn load_context_anchor() -> Option<ContextAnchor> {
+    let path = get_context_anchor_file();
+    if let Ok(bytes) = std::fs::read(path) {
+        if let Ok(anchor) = serde_json::from_slice::<ContextAnchor>(&bytes) {
+            if !anchor.file_path.is_empty() {
+                return Some(anchor);
+            }
+        }
+    }
+    None
+}
+
+pub fn resume_in_neovim(anchor: &ContextAnchor, terminal_cmd: &str) {
+    let socket_alive = !anchor.server_name.is_empty() && std::path::Path::new(&anchor.server_name).exists();
+    if socket_alive {
+        let cmd = format!("\x1c\x0e:e +{} {}\r", anchor.line, anchor.file_path);
+        let _ = std::process::Command::new("nvim")
+            .args(["--server", &anchor.server_name, "--remote-send", &cmd])
+            .spawn();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(output) = std::process::Command::new("hyprctl").args(["clients", "-j"]).output() {
+            if let Ok(clients) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                if let Some(arr) = clients.as_array() {
+                    let nvim_client = arr.iter().find(|c| {
+                        let class = c["class"].as_str().unwrap_or("").to_lowercase();
+                        let title = c["title"].as_str().unwrap_or("").to_lowercase();
+                        class.contains("nvim") || title.contains("nvim") || class.contains("ghostty") || class.contains("kitty") || class.contains("alacritty")
+                    });
+                    if let Some(c) = nvim_client {
+                        if let Some(address) = c["address"].as_str() {
+                            let _ = std::process::Command::new("hyprctl")
+                                .args(["dispatch", "focuswindow", &format!("address:{}", address)])
+                                .output();
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !socket_alive {
+        let parts: Vec<&str> = terminal_cmd.split_whitespace().collect();
+        if !parts.is_empty() {
+            let mut args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+            args.push(format!("+{}", anchor.line));
+            args.push(anchor.file_path.clone());
+            let _ = std::process::Command::new(parts[0])
+                .args(&args)
+                .spawn();
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MomentumTier {
+    Spark,       // 0 - 499 XP
+    FlowRider,   // 500 - 1999 XP
+    DeepDiver,   // 2000 - 4999 XP
+    CodeWizard,  // 5000+ XP
+}
+
+impl MomentumTier {
+    pub fn title_no(&self) -> &'static str {
+        match self {
+            MomentumTier::Spark => "Gnist",
+            MomentumTier::FlowRider => "Flytrytter",
+            MomentumTier::DeepDiver => "Dypdykker",
+            MomentumTier::CodeWizard => "Flytmester",
+        }
+    }
+
+    pub fn title_en(&self) -> &'static str {
+        match self {
+            MomentumTier::Spark => "Spark",
+            MomentumTier::FlowRider => "Flow Rider",
+            MomentumTier::DeepDiver => "Deep Diver",
+            MomentumTier::CodeWizard => "Flow Master",
+        }
+    }
+
+    pub fn current_threshold(&self) -> u64 {
+        match self {
+            MomentumTier::Spark => 0,
+            MomentumTier::FlowRider => 500,
+            MomentumTier::DeepDiver => 2000,
+            MomentumTier::CodeWizard => 5000,
+        }
+    }
+
+    pub fn next_threshold(&self) -> u64 {
+        match self {
+            MomentumTier::Spark => 500,
+            MomentumTier::FlowRider => 2000,
+            MomentumTier::DeepDiver => 5000,
+            MomentumTier::CodeWizard => 10000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserStats {
+    #[serde(default)]
+    pub total_focus_mins: u64,
+    #[serde(default)]
+    pub current_week_mins: u64,
+    #[serde(default)]
+    pub current_week_sessions: u32,
+    #[serde(default)]
+    pub current_week_impulses_captured: u32,
+    #[serde(default = "default_week_identifier")]
+    pub week_identifier: String,
+    #[serde(default)]
+    pub daily_mins: std::collections::HashMap<String, u32>,
+    #[serde(default)]
+    pub xp: u64,
+}
+
+fn default_week_identifier() -> String {
+    chrono::Local::now().format("%G-W%V").to_string()
+}
+
+impl Default for UserStats {
+    fn default() -> Self {
+        Self {
+            total_focus_mins: 0,
+            current_week_mins: 0,
+            current_week_sessions: 0,
+            current_week_impulses_captured: 0,
+            week_identifier: default_week_identifier(),
+            daily_mins: std::collections::HashMap::new(),
+            xp: 0,
+        }
+    }
+}
+
+impl UserStats {
+    pub fn tier(&self) -> MomentumTier {
+        if self.xp < 500 {
+            MomentumTier::Spark
+        } else if self.xp < 2000 {
+            MomentumTier::FlowRider
+        } else if self.xp < 5000 {
+            MomentumTier::DeepDiver
+        } else {
+            MomentumTier::CodeWizard
+        }
+    }
+
+    pub fn check_week_rollover(&mut self) {
+        let current_week = default_week_identifier();
+        if self.week_identifier != current_week {
+            self.week_identifier = current_week;
+            self.current_week_mins = 0;
+            self.current_week_sessions = 0;
+            self.current_week_impulses_captured = 0;
+        }
+    }
+
+    pub fn record_focus_minutes(&mut self, minutes: u64) {
+        if minutes == 0 {
+            return;
+        }
+        self.check_week_rollover();
+        self.total_focus_mins += minutes;
+        self.current_week_mins += minutes;
+        self.current_week_sessions += 1;
+        self.xp += minutes * 10;
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let current = self.daily_mins.entry(today).or_insert(0);
+        *current += minutes as u32;
+    }
+
+    pub fn record_micro_start(&mut self) {
+        self.check_week_rollover();
+        self.xp += 100;
+    }
+
+    pub fn record_impulse(&mut self) {
+        self.check_week_rollover();
+        self.current_week_impulses_captured += 1;
+        self.xp += 25;
+    }
+}
+
+pub fn get_stats_file() -> PathBuf {
+    get_data_dir().join("stats.json")
+}
+
+pub fn load_user_stats() -> UserStats {
+    let path = get_stats_file();
+    if let Ok(bytes) = std::fs::read(&path) {
+        if let Ok(mut stats) = serde_json::from_slice::<UserStats>(&bytes) {
+            stats.check_week_rollover();
+            return stats;
+        }
+    }
+    UserStats::default()
+}
+
+pub fn save_user_stats(stats: &UserStats) -> Result<(), std::io::Error> {
+    let path = get_stats_file();
+    if let Some(parent) = path.parent() {
+        create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(stats)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mini_hud_placement_serde() {
+        let p = MiniHudPlacement::BottomCenter;
+        let json = serde_json::to_string(&p).expect("serialize");
+        assert_eq!(json, "\"bottom_center\"");
+        let deserialized: MiniHudPlacement = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(deserialized, MiniHudPlacement::BottomCenter);
+    }
+
+    #[test]
+    fn test_completed_cleanup_serde() {
+        for (cleanup, expected_json) in [
+            (CompletedCleanup::OneHour, "\"1_hour\""),
+            (CompletedCleanup::OneDay, "\"1_day\""),
+            (CompletedCleanup::OneWeek, "\"1_week\""),
+            (CompletedCleanup::Keep, "\"keep\""),
+        ] {
+            let json = serde_json::to_string(&cleanup).expect("serialize");
+            assert_eq!(json, expected_json);
+            let des: CompletedCleanup = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(des, cleanup);
+        }
+    }
+
+    #[test]
+    fn test_markdown_checkbox_parsing_and_formatting() {
+        let line_active = "- [ ] [2026-11-10 12:00] Kjøpe kaffe";
+        let item_active = parse_markdown_checkbox_line(line_active);
+        assert_eq!(item_active.text, "Kjøpe kaffe");
+        assert_eq!(item_active.created_at, Some("2026-11-10 12:00".to_string()));
+        assert!(!item_active.done);
+        assert_eq!(item_active.completed_at, None);
+
+        let formatted_active = format_impulse_line(&item_active, SideQuestFormat::MarkdownCheckbox);
+        assert_eq!(formatted_active, line_active);
+
+        let line_done = "- [x] [2026-11-10 12:00] Kjøpe kaffe [done:2026-11-10 12:45]";
+        let item_done = parse_markdown_checkbox_line(line_done);
+        assert_eq!(item_done.text, "Kjøpe kaffe");
+        assert_eq!(item_done.created_at, Some("2026-11-10 12:00".to_string()));
+        assert!(item_done.done);
+        assert_eq!(item_done.completed_at, Some("2026-11-10 12:45".to_string()));
+
+        let formatted_done = format_impulse_line(&item_done, SideQuestFormat::MarkdownCheckbox);
+        assert_eq!(formatted_done, line_done);
+    }
+
+    #[test]
+    fn test_completed_cleanup_filtering() {
+        let now = chrono::Local::now();
+        let item_active = ImpulseItem {
+            text: "Aktiv oppgave".to_string(),
+            created_at: Some(now.format("%Y-%m-%d %H:%M").to_string()),
+            done: false,
+            completed_at: None,
+        };
+        let item_done_recent = ImpulseItem {
+            text: "Nylig fullført (10m siden)".to_string(),
+            created_at: Some((now - chrono::Duration::minutes(20)).format("%Y-%m-%d %H:%M").to_string()),
+            done: true,
+            completed_at: Some((now - chrono::Duration::minutes(10)).format("%Y-%m-%d %H:%M").to_string()),
+        };
+        let item_done_old = ImpulseItem {
+            text: "Gammel fullført (2 timer siden)".to_string(),
+            created_at: Some((now - chrono::Duration::hours(3)).format("%Y-%m-%d %H:%M").to_string()),
+            done: true,
+            completed_at: Some((now - chrono::Duration::hours(2)).format("%Y-%m-%d %H:%M").to_string()),
+        };
+
+        let items = vec![item_active.clone(), item_done_recent.clone(), item_done_old.clone()];
+
+        // Filter with OneHour: old should be pruned, recent and active kept
+        let max_age_1h = CompletedCleanup::OneHour.max_age_duration().unwrap();
+        let filtered_1h: Vec<_> = items.clone().into_iter().filter(|item| {
+            if !item.done { return true; }
+            if let Some(comp) = &item.completed_at {
+                if let Some(dt) = parse_timestamp(comp) {
+                    return now.signed_duration_since(dt) < max_age_1h;
+                }
+            }
+            true
+        }).collect();
+        assert_eq!(filtered_1h.len(), 2);
+        assert_eq!(filtered_1h[0].text, "Aktiv oppgave");
+        assert_eq!(filtered_1h[1].text, "Nylig fullført (10m siden)");
+
+        // Filter with Keep: nothing pruned
+        assert!(CompletedCleanup::Keep.max_age_duration().is_none());
+    }
+
+    #[test]
+    fn test_editor_focus_state_serde() {
+        let json = r#"{"focused":true,"editor":"neovim","timestamp":1794321307,"server_name":"/run/user/1000/nvim.123","pid":123}"#;
+        let state: EditorFocusState = serde_json::from_str(json).unwrap();
+        assert!(state.focused);
+        assert_eq!(state.editor, "neovim");
+        assert_eq!(state.pid, 123);
+        assert_eq!(state.timestamp, 1794321307);
+    }
+}
