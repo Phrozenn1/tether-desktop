@@ -108,6 +108,19 @@ tether --cli impulses.add '{"text":"Check lecture notes"}'
 tether --cli '{"operation":"ramdump.list"}'
 ```
 
+### Waybar Status Module (`--waybar`)
+Display live Flowmodoro status, active context anchor, and open impulse count directly in your Waybar (`~/.config/waybar/config.jsonc`):
+```jsonc
+"custom/tether": {
+  "exec": "tether --waybar",
+  "return-type": "json",
+  "interval": 1,
+  "on-click": "tether --cli flow.toggle",
+  "on-click-middle": "tether --cli flow.micro_start",
+  "on-click-right": "tether --quick-capture"
+}
+```
+
 ---
 
 ## 🛠️ Building & Cross-Platform Installation

@@ -31,6 +31,17 @@
     <binary>tether</binary>
   </provides>
   <releases>
+    <release version="1.5.0" date="2026-11-14">
+      <description>
+        <p>Workspace automation &amp; ecosystem parity release adding Global Quick-Capture, Shared Core CLI, Waybar module, and Obsidian tether-flow sync.</p>
+        <ul>
+          <li>Global Quick-Capture modal (<code>tether --quick-capture</code>, <code>--impulse</code>, <code>--ramdump</code>) for capturing thoughts, AI-assisted RAM-dumps, and 5-minute Micro-Starts from any window.</li>
+          <li>Shared Core CLI interface (<code>tether --cli &lt;operation&gt; [payload]</code>) exposing Flowmodoro control, impulses, RAM-dumps, and health checks.</li>
+          <li>Live Waybar JSON status module (<code>tether --waybar</code>) displaying focus/break timers, active context anchor, and open impulse counts.</li>
+          <li>Full synchronization with <code>tether-flow</code> (Obsidian Community Plugin) and upgraded <code>tether-vscode</code> extension.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.4.0" date="2026-11-14">
       <description>
         <p>Universal deep-work release introducing AI-assisted RAM-dumps, edit/delete CRUD, Phase 4 recovery workflows, and Obsidian support.</p>
