@@ -31,6 +31,17 @@
     <binary>tether</binary>
   </provides>
   <releases>
+    <release version="1.6.0" date="2026-11-15">
+      <description>
+        <p>Daily focus persistence, automatic GitHub release update notifications, cross-platform window tracking, and full interactive WinUI 3 parity.</p>
+        <ul>
+          <li>Daily focus total persistence across sessions, timer resets, and system restarts in both core stats and FFI snapshots.</li>
+          <li>Automatic GitHub Releases version check at startup and every 6 hours with in-app banner, header pill, desktop notification, and Settings controls.</li>
+          <li>Cross-platform active window tracking supporting Hyprland, Sway/i3, Niri, X11, macOS, and Windows.</li>
+          <li>Full interactive WinUI 3 feature parity for RAM-dump, Impulses, Momentum, Rewards, and Settings (including auto-update controls).</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.5.0" date="2026-11-14">
       <description>
         <p>Workspace automation &amp; ecosystem parity release adding Global Quick-Capture, Shared Core CLI, Waybar module, and Obsidian tether-flow sync.</p>
