@@ -24,6 +24,7 @@ pub struct Flowmodoro {
     pub focus_at_last_break: u64,
     pub seq: u64,
     pub last_synced_seq: u64,
+    pub writer: String,
     accumulator: Duration,
 }
 
@@ -44,6 +45,7 @@ impl Default for Flowmodoro {
             focus_at_last_break: 0,
             seq: 0,
             last_synced_seq: 0,
+            writer: "desktop".to_string(),
             accumulator: Duration::ZERO,
         }
     }
@@ -66,6 +68,16 @@ impl Flowmodoro {
     }
 
     pub fn broadcast_state(&self) {
+        let writer = if self.writer.is_empty() {
+            "desktop"
+        } else {
+            &self.writer
+        };
+        let shared = self.to_shared_state(writer);
+        let _ = storage::save_shared_state(&shared);
+    }
+
+    pub fn to_shared_state(&self, writer: &str) -> SharedFlowState {
         let state_str = match self.state {
             FlowState::Idle => "idle",
             FlowState::MicroStart => "micro_start",
@@ -73,7 +85,7 @@ impl Flowmodoro {
             FlowState::Break => "break",
         };
 
-        let shared = SharedFlowState {
+        SharedFlowState {
             state: state_str.to_string(),
             start_epoch: self.start_epoch,
             break_duration_sec: self.break_duration_sec,
@@ -82,72 +94,75 @@ impl Flowmodoro {
             banked_break_sec: self.banked_break_secs,
             focus_ratio: self.focus_ratio,
             break_ratio: self.break_ratio,
-            writer: "desktop".to_string(),
+            writer: writer.to_string(),
             seq: self.seq,
             timestamp: now_epoch(),
-        };
+        }
+    }
 
-        let _ = storage::save_shared_state(&shared);
+    pub fn hydrate_from_shared(&mut self, shared: &SharedFlowState) {
+        self.last_synced_seq = shared.seq;
+        self.seq = shared.seq;
+        self.focus_ratio = shared.focus_ratio.max(1);
+        self.break_ratio = shared.break_ratio.max(1);
+
+        let now = now_epoch();
+        match shared.state.as_str() {
+            "micro_start" => {
+                self.state = FlowState::MicroStart;
+                self.start_epoch = shared.start_epoch;
+                let elapsed = if self.start_epoch > 0 && now >= self.start_epoch {
+                    now - self.start_epoch
+                } else {
+                    0
+                };
+                self.micro_remaining_secs = 300_u64.saturating_sub(elapsed);
+            }
+            "focus" => {
+                self.state = FlowState::Focus;
+                self.start_epoch = shared.start_epoch;
+                self.elapsed_focus_secs = if self.start_epoch > 0 && now >= self.start_epoch {
+                    now - self.start_epoch
+                } else {
+                    shared.elapsed_focus_sec
+                };
+                self.banked_break_secs = shared.banked_break_sec;
+                self.focus_at_last_break = self.elapsed_focus_secs;
+            }
+            "break" => {
+                self.state = FlowState::Break;
+                self.start_epoch = shared.start_epoch;
+                self.break_duration_sec = shared.break_duration_sec.max(shared.remaining_break_sec);
+                self.initial_break_secs = self.break_duration_sec;
+                let elapsed = if self.start_epoch > 0 && now >= self.start_epoch {
+                    now - self.start_epoch
+                } else {
+                    0
+                };
+                self.remaining_break_secs = self.break_duration_sec.saturating_sub(elapsed);
+            }
+            _ => {
+                self.state = FlowState::Idle;
+                self.elapsed_focus_secs = 0;
+                self.remaining_break_secs = 0;
+                self.banked_break_secs = 0;
+                self.focus_at_last_break = 0;
+                self.start_epoch = 0;
+            }
+        }
     }
 
     pub fn check_external_sync(&mut self) {
         if let Some(shared) = storage::load_shared_state() {
             let is_new_seq = shared.seq != self.last_synced_seq;
-            let is_external = shared.writer == "nvim"
-                || shared.writer == "vscode"
-                || shared.writer == "obsidian";
+            let is_external = matches!(
+                shared.writer.as_str(),
+                "nvim" | "vscode" | "obsidian" | "cli" | "quick-capture"
+            );
             let is_startup_recovery = self.last_synced_seq == 0 && shared.state != "idle" && self.state == FlowState::Idle;
 
             if (is_external && is_new_seq) || is_startup_recovery {
-                self.last_synced_seq = shared.seq;
-                self.seq = shared.seq;
-                self.focus_ratio = shared.focus_ratio.max(1);
-                self.break_ratio = shared.break_ratio.max(1);
-
-                let now = now_epoch();
-                match shared.state.as_str() {
-                    "micro_start" => {
-                        self.state = FlowState::MicroStart;
-                        self.start_epoch = shared.start_epoch;
-                        let elapsed = if self.start_epoch > 0 && now >= self.start_epoch {
-                            now - self.start_epoch
-                        } else {
-                            0
-                        };
-                        self.micro_remaining_secs = 300_u64.saturating_sub(elapsed);
-                    }
-                    "focus" => {
-                        self.state = FlowState::Focus;
-                        self.start_epoch = shared.start_epoch;
-                        self.elapsed_focus_secs = if self.start_epoch > 0 && now >= self.start_epoch {
-                            now - self.start_epoch
-                        } else {
-                            shared.elapsed_focus_sec
-                        };
-                        self.banked_break_secs = shared.banked_break_sec;
-                        self.focus_at_last_break = self.elapsed_focus_secs;
-                    }
-                    "break" => {
-                        self.state = FlowState::Break;
-                        self.start_epoch = shared.start_epoch;
-                        self.break_duration_sec = shared.break_duration_sec.max(shared.remaining_break_sec);
-                        self.initial_break_secs = self.break_duration_sec;
-                        let elapsed = if self.start_epoch > 0 && now >= self.start_epoch {
-                            now - self.start_epoch
-                        } else {
-                            0
-                        };
-                        self.remaining_break_secs = self.break_duration_sec.saturating_sub(elapsed);
-                    }
-                    _ => {
-                        self.state = FlowState::Idle;
-                        self.elapsed_focus_secs = 0;
-                        self.remaining_break_secs = 0;
-                        self.banked_break_secs = 0;
-                        self.focus_at_last_break = 0;
-                        self.start_epoch = 0;
-                    }
-                }
+                self.hydrate_from_shared(&shared);
             }
         }
     }
@@ -396,6 +411,39 @@ impl Flowmodoro {
             }
         }
     }
+}
+
+/// Apply a shared Flowmodoro action (`status`, `toggle`, `micro_start`, `reset`)
+/// directly against `flow_state.json`, returning the resulting `SharedFlowState`.
+pub fn apply_shared_flow_action(action: &str, writer: &str) -> Result<SharedFlowState, String> {
+    let settings = storage::load_settings();
+    let existing = storage::load_shared_state();
+
+    let mut flow = Flowmodoro::default();
+    flow.focus_ratio = settings.ratio_focus.max(1);
+    flow.break_ratio = settings.ratio_break.max(1);
+    flow.writer = writer.to_string();
+
+    if let Some(ref shared) = existing {
+        flow.hydrate_from_shared(shared);
+    }
+
+    match action {
+        "status" => {
+            let effective_writer = existing
+                .as_ref()
+                .map(|s| s.writer.as_str())
+                .filter(|w| !w.is_empty())
+                .unwrap_or(writer);
+            return Ok(flow.to_shared_state(effective_writer));
+        }
+        "toggle" => flow.toggle(),
+        "micro_start" => flow.start_micro_start(),
+        "reset" => flow.reset(),
+        other => return Err(format!("Unsupported flow action: {other}")),
+    }
+
+    Ok(flow.to_shared_state(writer))
 }
 
 pub fn format_time(seconds: u64) -> String {

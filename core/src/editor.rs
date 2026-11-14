@@ -817,13 +817,14 @@ pub fn check_obsidian_plugin_status() -> (bool, String) {
     }
     let installed_names: Vec<String> = vaults
         .iter()
-        .filter(|v| v.join(".obsidian/plugins/tether-obsidian/main.js").is_file())
+        .filter(|v| {
+            v.join(".obsidian/plugins/tether/main.js").is_file()
+                || v.join(".obsidian/plugins/tether-obsidian/main.js").is_file()
+        })
         .filter_map(|v| v.file_name().map(|n| n.to_string_lossy().to_string()))
         .collect();
 
-    if installed_names.len() == vaults.len() {
-        (true, format!("Installert i {}/{} vaults ({})", installed_names.len(), vaults.len(), installed_names.join(", ")))
-    } else if !installed_names.is_empty() {
+    if !installed_names.is_empty() {
         (true, format!("Installert i {}/{} vaults ({})", installed_names.len(), vaults.len(), installed_names.join(", ")))
     } else {
         (false, format!("Ikke installert i {} Obsidian-vault(s)", vaults.len()))
@@ -846,7 +847,12 @@ pub fn install_obsidian_plugin() -> Result<String, String> {
 
     let mut installed_in = Vec::new();
     for vault in &vaults {
-        let plugin_dir = vault.join(".obsidian/plugins/tether-obsidian");
+        let legacy_dir = vault.join(".obsidian/plugins/tether-obsidian");
+        if legacy_dir.is_dir() {
+            let _ = std::fs::remove_dir_all(&legacy_dir);
+        }
+
+        let plugin_dir = vault.join(".obsidian/plugins/tether");
         std::fs::create_dir_all(&plugin_dir).map_err(|e| e.to_string())?;
         for fname in ["manifest.json", "main.js", "styles.css"] {
             let src = source_dir.join(fname);
@@ -860,11 +866,12 @@ pub fn install_obsidian_plugin() -> Result<String, String> {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        if !plugins.iter().any(|p| p == "tether-obsidian") {
-            plugins.push("tether-obsidian".to_string());
-            if let Ok(json) = serde_json::to_string_pretty(&plugins) {
-                let _ = std::fs::write(&community_path, json);
-            }
+        plugins.retain(|p| p != "tether-obsidian");
+        if !plugins.iter().any(|p| p == "tether") {
+            plugins.push("tether".to_string());
+        }
+        if let Ok(json) = serde_json::to_string_pretty(&plugins) {
+            let _ = std::fs::write(&community_path, json);
         }
 
         if let Some(name) = vault.file_name() {
@@ -872,7 +879,7 @@ pub fn install_obsidian_plugin() -> Result<String, String> {
         }
     }
 
-    Ok(format!("Installert tether-obsidian i: {}. Start Obsidian på nytt (eller reload plugins).", installed_in.join(", ")))
+    Ok(format!("Installert Tether Flowmodoro (tether) i: {}. Start Obsidian på nytt (eller reload plugins).", installed_in.join(", ")))
 }
 
 pub fn check_vscode_extension_status(editor: EditorType) -> (bool, String) {

@@ -1,6 +1,6 @@
 use crate::audio::{ChimeType, SoundscapePlayer, SoundscapeType};
 use crate::dopamine::{self, DopamineAccount, RewardCategory};
-use crate::flowmodoro::{FlowState, Flowmodoro};
+use crate::flowmodoro::{self, FlowState, Flowmodoro};
 use crate::storage::{self, TetherSettings};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -232,6 +232,27 @@ fn dispatch_request(request: CoreRequest) -> Result<Value, String> {
             let card = crate::context_engine::build_where_was_i(&settings);
             serde_json::to_value(card).map_err(|error| error.to_string())
         }
+        "health" => Ok(serde_json::json!({
+            "service": "tether-core",
+            "version": env!("CARGO_PKG_VERSION"),
+            "status": "ok"
+        })),
+        "flow.status" => {
+            let state = flowmodoro::apply_shared_flow_action("status", "cli")?;
+            serde_json::to_value(state).map_err(|error| error.to_string())
+        }
+        "flow.toggle" => {
+            let state = flowmodoro::apply_shared_flow_action("toggle", "cli")?;
+            serde_json::to_value(state).map_err(|error| error.to_string())
+        }
+        "flow.micro_start" => {
+            let state = flowmodoro::apply_shared_flow_action("micro_start", "cli")?;
+            serde_json::to_value(state).map_err(|error| error.to_string())
+        }
+        "flow.reset" => {
+            let state = flowmodoro::apply_shared_flow_action("reset", "cli")?;
+            serde_json::to_value(state).map_err(|error| error.to_string())
+        }
         "shutdown.save" => {
             let record: storage::ShutdownRecord =
                 serde_json::from_value(request.payload).map_err(|error| error.to_string())?;
@@ -240,6 +261,29 @@ fn dispatch_request(request: CoreRequest) -> Result<Value, String> {
         }
         operation => Err(format!("Unsupported core operation: {operation}")),
     }
+}
+
+fn dispatch_json_inner(request_json: &str) -> CoreResponse {
+    let request = match serde_json::from_str::<CoreRequest>(request_json) {
+        Ok(request) => request,
+        Err(error) => return CoreResponse::error(format!("Invalid request JSON: {error}")),
+    };
+    match dispatch_request(request) {
+        Ok(data) => CoreResponse::success(data),
+        Err(error) => CoreResponse::error(error),
+    }
+}
+
+/// Dispatch a JSON core request string (`{"operation": "...", "payload": ...}`) and
+/// return a serialized `CoreResponse` JSON string. Shared by C FFI and `tether --cli`.
+pub fn handle_json_request(request_json: &str) -> String {
+    let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        dispatch_json_inner(request_json)
+    }))
+    .unwrap_or_else(|_| CoreResponse::error("The Tether core service failed unexpectedly."));
+
+    serde_json::to_string(&response)
+        .unwrap_or_else(|_| r#"{"ok":false,"error":"Could not encode core response."}"#.into())
 }
 
 fn into_c_string(response: CoreResponse) -> *mut c_char {
@@ -260,14 +304,7 @@ pub unsafe extern "C" fn tether_core_request(request_json: *const c_char) -> *mu
             Ok(request) => request,
             Err(error) => return CoreResponse::error(format!("Request is not UTF-8: {error}")),
         };
-        let request = match serde_json::from_str::<CoreRequest>(request) {
-            Ok(request) => request,
-            Err(error) => return CoreResponse::error(format!("Invalid request JSON: {error}")),
-        };
-        match dispatch_request(request) {
-            Ok(data) => CoreResponse::success(data),
-            Err(error) => CoreResponse::error(error),
-        }
+        dispatch_json_inner(request)
     }))
     .unwrap_or_else(|_| CoreResponse::error("The Tether core service failed unexpectedly."));
     into_c_string(response)
@@ -482,5 +519,24 @@ mod tests {
             );
             tether_string_free(response);
         }
+    }
+
+    #[test]
+    fn handle_json_request_supports_health_flow_status_and_ramdump_list() {
+        let health_json = handle_json_request(r#"{"operation":"health"}"#);
+        let health: serde_json::Value = serde_json::from_str(&health_json).unwrap();
+        assert_eq!(health["ok"], true);
+        assert_eq!(health["data"]["service"], "tether-core");
+        assert_eq!(health["data"]["status"], "ok");
+
+        let flow_json = handle_json_request(r#"{"operation":"flow.status"}"#);
+        let flow: serde_json::Value = serde_json::from_str(&flow_json).unwrap();
+        assert_eq!(flow["ok"], true);
+        assert!(flow["data"]["state"].is_string());
+
+        let ram_json = handle_json_request(r#"{"operation":"ramdump.list"}"#);
+        let ram: serde_json::Value = serde_json::from_str(&ram_json).unwrap();
+        assert_eq!(ram["ok"], true);
+        assert!(ram["data"].is_array());
     }
 }

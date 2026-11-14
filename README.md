@@ -85,6 +85,31 @@ Counteract *time blindness* during deep hyperfocus:
 
 ---
 
+## ⚡ Global Quick-Capture & Shared CLI
+
+### Global Quick-Capture Modal (`--quick-capture`)
+Bind a system-wide shortcut to capture impulses, save AI-assisted RAM-dumps, or trigger a 5-minute Micro-Start from any application without switching windows:
+```bash
+tether --quick-capture      # Unified impulse + RAM-dump + flow popup
+tether --impulse            # Focused impulse-only prompt
+tether --ramdump            # Focused RAM-dump prompt with auto-fill
+```
+**Hyprland example (`~/.config/hypr/bindings.conf`):**
+```ini
+bindd = SUPER, T, Tether Quick-Capture, exec, tether --quick-capture
+```
+
+### Shared Core CLI (`--cli`)
+Scripts, window managers, and companion plugins can invoke `tether-core` operations directly via JSON:
+```bash
+tether --cli flow.status
+tether --cli flow.micro_start
+tether --cli impulses.add '{"text":"Check lecture notes"}'
+tether --cli '{"operation":"ramdump.list"}'
+```
+
+---
+
 ## 🛠️ Building & Cross-Platform Installation
 
 ### Prerequisites
