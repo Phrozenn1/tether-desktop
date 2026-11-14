@@ -64,7 +64,7 @@ fn any_binary_exists(bins: &[&str]) -> bool {
 }
 
 pub fn binary_running(bin: &str) -> bool {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         if let Ok(output) = std::process::Command::new("pgrep").args(["-x", bin]).output() {
             if !output.stdout.is_empty() {
@@ -72,7 +72,24 @@ pub fn binary_running(bin: &str) -> bool {
             }
         }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        let image = if bin.to_ascii_lowercase().ends_with(".exe") {
+            bin.to_string()
+        } else {
+            format!("{bin}.exe")
+        };
+        if let Ok(output) = std::process::Command::new("tasklist")
+            .args(["/NH", "/FI", &format!("IMAGENAME eq {image}")])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+            if stdout.contains(&image.to_ascii_lowercase()) && !stdout.contains("info:") {
+                return true;
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     let _ = bin;
     false
 }
@@ -1146,114 +1163,385 @@ fn resolve_doc_path_from_proc_or_recent(pid: Option<i64>, doc_title: &str, exten
     None
 }
 
-/// Captures active document/media/study context from non-editor creative/writing OS windows.
-pub fn sync_universal_context_anchor() {
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ActiveWindowInfo {
+    pub class: String,
+    pub title: String,
+    pub init_title: String,
+    pub pid: Option<i64>,
+}
+
+pub fn find_focused_sway_node(val: &serde_json::Value) -> Option<ActiveWindowInfo> {
+    for key in ["nodes", "floating_nodes"] {
+        if let Some(arr) = val.get(key).and_then(|v| v.as_array()) {
+            for child in arr {
+                if let Some(found) = find_focused_sway_node(child) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+
+    if val.get("focused").and_then(|f| f.as_bool()) == Some(true) {
+        let app_id = val.get("app_id").and_then(|v| v.as_str()).unwrap_or("");
+        let win_class = val
+            .get("window_properties")
+            .and_then(|wp| wp.get("class"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let class = if !app_id.is_empty() { app_id } else { win_class };
+        let title = val.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let pid = val.get("pid").and_then(|v| v.as_i64());
+        if !class.is_empty() || !title.is_empty() || pid.is_some() {
+            return Some(ActiveWindowInfo {
+                class: class.to_string(),
+                title: title.to_string(),
+                init_title: String::new(),
+                pid,
+            });
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "windows")]
+mod win32_window {
+    use super::ActiveWindowInfo;
+    use std::path::Path;
+
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetForegroundWindow() -> isize;
+        fn GetWindowTextW(hwnd: isize, lp_string: *mut u16, n_max_count: i32) -> i32;
+        fn GetWindowThreadProcessId(hwnd: isize, lpdw_process_id: *mut u32) -> u32;
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenProcess(dw_desired_access: u32, b_inherit_handle: i32, dw_process_id: u32) -> isize;
+        fn QueryFullProcessImageNameW(
+            h_process: isize,
+            dw_flags: u32,
+            lp_exe_name: *mut u16,
+            lpdw_size: *mut u32,
+        ) -> i32;
+        fn CloseHandle(h_object: isize) -> i32;
+    }
+
+    pub fn query_foreground() -> Option<ActiveWindowInfo> {
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd == 0 {
+                return None;
+            }
+            let mut title_buf = [0u16; 512];
+            let title_len = GetWindowTextW(hwnd, title_buf.as_mut_ptr(), title_buf.len() as i32);
+            let title = if title_len > 0 {
+                String::from_utf16_lossy(&title_buf[..title_len as usize])
+            } else {
+                String::new()
+            };
+
+            let mut pid: u32 = 0;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+
+            let mut class = String::new();
+            if pid != 0 {
+                let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                if handle != 0 {
+                    let mut exe_buf = [0u16; 512];
+                    let mut exe_len = exe_buf.len() as u32;
+                    if QueryFullProcessImageNameW(handle, 0, exe_buf.as_mut_ptr(), &mut exe_len) != 0
+                        && exe_len > 0
+                    {
+                        let full = String::from_utf16_lossy(&exe_buf[..exe_len as usize]);
+                        class = Path::new(&full)
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_string();
+                    }
+                    CloseHandle(handle);
+                }
+            }
+
+            if class.is_empty() && title.is_empty() {
+                None
+            } else {
+                Some(ActiveWindowInfo {
+                    class,
+                    title,
+                    init_title: String::new(),
+                    pid: if pid > 0 { Some(pid as i64) } else { None },
+                })
+            }
+        }
+    }
+}
+
+pub fn query_active_window() -> Option<ActiveWindowInfo> {
     #[cfg(target_os = "linux")]
     {
-        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_none() {
-            return;
-        }
-        let Ok(out) = std::process::Command::new("hyprctl").args(["activewindow", "-j"]).output() else {
-            return;
-        };
-        let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
-            return;
-        };
-        let class = val.get("class").and_then(|c| c.as_str()).unwrap_or("");
-        let title = val.get("title").and_then(|t| t.as_str()).unwrap_or("");
-        if class.is_empty() && title.is_empty() {
-            return;
-        }
-        let pid = val.get("pid").and_then(|p| p.as_i64());
-        let class_l = class.to_lowercase();
-        let title_l = title.to_lowercase();
-
-        let Some(app) = UNIVERSAL_APPS.iter().find(|a| {
-            a.class_needles
-                .iter()
-                .any(|n| class_l.contains(n) || title_l.contains(n))
-        }) else {
-            return;
-        };
-
-        let now = chrono::Utc::now().timestamp().max(0) as u64;
-        let existing = crate::storage::load_context_anchor();
-        if app.app_id == "obsidian" {
-            if let Some(ref ex) = existing {
-                if ex.server_name == "obsidian" && now.saturating_sub(ex.timestamp) < 5 {
-                    return;
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            if let Ok(out) = std::process::Command::new("hyprctl")
+                .args(["activewindow", "-j"])
+                .output()
+            {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                    let class = val.get("class").and_then(|c| c.as_str()).unwrap_or("").to_string();
+                    let title = val.get("title").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                    let init_title = val
+                        .get("initialTitle")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let pid = val.get("pid").and_then(|p| p.as_i64());
+                    if !class.is_empty() || !title.is_empty() {
+                        return Some(ActiveWindowInfo {
+                            class,
+                            title,
+                            init_title,
+                            pid,
+                        });
+                    }
                 }
             }
         }
 
-        let doc_title = clean_window_doc_title(title);
-        if doc_title.is_empty() || doc_title.eq_ignore_ascii_case(app.friendly_name) {
-            return;
-        }
-
-        let mut resolved_file = resolve_doc_path_from_proc_or_recent(pid, &doc_title, app.extensions);
-        let mut vault_name: Option<String> = None;
-        let mut vault_path: Option<PathBuf> = None;
-
-        if app.app_id == "obsidian" && resolved_file.is_none() {
-            for v in find_obsidian_vaults() {
-                if let Some(found) = find_file_in_vault_by_stem(&v, &doc_title, 400) {
-                    vault_name = v.file_name().map(|n| n.to_string_lossy().to_string());
-                    vault_path = Some(v);
-                    resolved_file = Some(found);
-                    break;
-                }
-            }
-        }
-
-        let (file_path, project_path, project_name, relative_path) = if let Some(fp) = resolved_file {
-            let abs = fp.to_string_lossy().to_string();
-            let p_dir = vault_path
-                .clone()
-                .or_else(|| fp.parent().map(|p| p.to_path_buf()))
-                .unwrap_or_default();
-            let rel = if let Ok(r) = fp.strip_prefix(&p_dir) {
-                r.to_string_lossy().to_string()
+        if std::env::var_os("SWAYSOCK").is_some() || std::env::var_os("I3SOCK").is_some() {
+            let cmd = if std::env::var_os("SWAYSOCK").is_some() {
+                "swaymsg"
             } else {
-                fp.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| abs.clone())
+                "i3-msg"
             };
-            let proj = vault_name
-                .or_else(|| Some(app.friendly_name.to_string()))
-                .unwrap_or_default();
-            (abs, p_dir.to_string_lossy().to_string(), proj, rel)
-        } else {
-            (
-                doc_title.clone(),
-                String::new(),
-                app.friendly_name.to_string(),
-                doc_title,
-            )
-        };
-
-        let anchor = ContextAnchor {
-            timestamp: now,
-            project_name,
-            project_path,
-            branch: String::new(),
-            file_path,
-            relative_path,
-            line: 1,
-            col: 0,
-            last_note: format!("Aktiv i {}", app.friendly_name),
-            server_name: app.app_id.to_string(),
-        };
-
-        let should_write = match existing {
-            Some(ex) => {
-                ex.file_path != anchor.file_path
-                    || ex.server_name != anchor.server_name
-                    || now.saturating_sub(ex.timestamp) >= 4
+            if let Ok(out) = std::process::Command::new(cmd)
+                .args(["-t", "get_tree"])
+                .output()
+            {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                    if let Some(info) = find_focused_sway_node(&val) {
+                        return Some(info);
+                    }
+                }
             }
-            None => true,
-        };
-        if should_write {
-            let _ = crate::storage::save_context_anchor(&anchor);
         }
+
+        if std::env::var_os("NIRI_SOCKET").is_some() {
+            if let Ok(out) = std::process::Command::new("niri")
+                .args(["msg", "-j", "focused-window"])
+                .output()
+            {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                    let class = val.get("app_id").and_then(|c| c.as_str()).unwrap_or("").to_string();
+                    let title = val.get("title").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                    let pid = val.get("pid").and_then(|p| p.as_i64());
+                    if !class.is_empty() || !title.is_empty() {
+                        return Some(ActiveWindowInfo {
+                            class,
+                            title,
+                            init_title: String::new(),
+                            pid,
+                        });
+                    }
+                }
+            }
+        }
+
+        if std::env::var_os("DISPLAY").is_some() {
+            if let Ok(id_out) = std::process::Command::new("xdotool")
+                .arg("getactivewindow")
+                .output()
+            {
+                if id_out.status.success() {
+                    let wid = String::from_utf8_lossy(&id_out.stdout).trim().to_string();
+                    if !wid.is_empty() {
+                        let title = std::process::Command::new("xdotool")
+                            .args(["getwindowname", &wid])
+                            .output()
+                            .ok()
+                            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                            .unwrap_or_default();
+                        let class = std::process::Command::new("xdotool")
+                            .args(["getwindowclassname", &wid])
+                            .output()
+                            .ok()
+                            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                            .unwrap_or_default();
+                        let pid = std::process::Command::new("xdotool")
+                            .args(["getwindowpid", &wid])
+                            .output()
+                            .ok()
+                            .and_then(|o| {
+                                String::from_utf8_lossy(&o.stdout)
+                                    .trim()
+                                    .parse::<i64>()
+                                    .ok()
+                            });
+                        if !class.is_empty() || !title.is_empty() {
+                            return Some(ActiveWindowInfo {
+                                class,
+                                title,
+                                init_title: String::new(),
+                                pid,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let script = r#"
+tell application "System Events"
+    set p to first process whose frontmost is true
+    set n to name of p
+    set u to unix id of p
+    set w to ""
+    try
+        set w to name of front window of p
+    end try
+    return n & linefeed & (u as string) & linefeed & w
+end tell
+"#;
+        if let Ok(out) = std::process::Command::new("osascript")
+            .args(["-e", script])
+            .output()
+        {
+            if out.status.success() {
+                let text = String::from_utf8_lossy(&out.stdout);
+                let mut lines = text.lines();
+                let class = lines.next().unwrap_or("").trim().to_string();
+                let pid = lines.next().and_then(|s| s.trim().parse::<i64>().ok());
+                let title = lines.next().unwrap_or("").trim().to_string();
+                if !class.is_empty() || !title.is_empty() {
+                    return Some(ActiveWindowInfo {
+                        class,
+                        title,
+                        init_title: String::new(),
+                        pid,
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        win32_window::query_foreground()
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        None
+    }
+}
+
+/// Captures active document/media/study context from non-editor creative/writing OS windows.
+pub fn sync_universal_context_anchor() {
+    let Some(win) = query_active_window() else {
+        return;
+    };
+    let class = win.class.as_str();
+    let title = win.title.as_str();
+    if class.is_empty() && title.is_empty() {
+        return;
+    }
+    let pid = win.pid;
+    let class_l = class.to_lowercase();
+    let title_l = title.to_lowercase();
+
+    let Some(app) = UNIVERSAL_APPS.iter().find(|a| {
+        a.class_needles
+            .iter()
+            .any(|n| class_l.contains(n) || title_l.contains(n))
+    }) else {
+        return;
+    };
+
+    let now = chrono::Utc::now().timestamp().max(0) as u64;
+    let existing = crate::storage::load_context_anchor();
+    if app.app_id == "obsidian" {
+        if let Some(ref ex) = existing {
+            if ex.server_name == "obsidian" && now.saturating_sub(ex.timestamp) < 5 {
+                return;
+            }
+        }
+    }
+
+    let doc_title = clean_window_doc_title(title);
+    if doc_title.is_empty() || doc_title.eq_ignore_ascii_case(app.friendly_name) {
+        return;
+    }
+
+    let mut resolved_file = resolve_doc_path_from_proc_or_recent(pid, &doc_title, app.extensions);
+    let mut vault_name: Option<String> = None;
+    let mut vault_path: Option<PathBuf> = None;
+
+    if app.app_id == "obsidian" && resolved_file.is_none() {
+        for v in find_obsidian_vaults() {
+            if let Some(found) = find_file_in_vault_by_stem(&v, &doc_title, 400) {
+                vault_name = v.file_name().map(|n| n.to_string_lossy().to_string());
+                vault_path = Some(v);
+                resolved_file = Some(found);
+                break;
+            }
+        }
+    }
+
+    let (file_path, project_path, project_name, relative_path) = if let Some(fp) = resolved_file {
+        let abs = fp.to_string_lossy().to_string();
+        let p_dir = vault_path
+            .clone()
+            .or_else(|| fp.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_default();
+        let rel = if let Ok(r) = fp.strip_prefix(&p_dir) {
+            r.to_string_lossy().to_string()
+        } else {
+            fp.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| abs.clone())
+        };
+        let proj = vault_name
+            .or_else(|| Some(app.friendly_name.to_string()))
+            .unwrap_or_default();
+        (abs, p_dir.to_string_lossy().to_string(), proj, rel)
+    } else {
+        (
+            doc_title.clone(),
+            String::new(),
+            app.friendly_name.to_string(),
+            doc_title,
+        )
+    };
+
+    let anchor = ContextAnchor {
+        timestamp: now,
+        project_name,
+        project_path,
+        branch: String::new(),
+        file_path,
+        relative_path,
+        line: 1,
+        col: 0,
+        last_note: format!("Aktiv i {}", app.friendly_name),
+        server_name: app.app_id.to_string(),
+    };
+
+    let should_write = match existing {
+        Some(ex) => {
+            ex.file_path != anchor.file_path
+                || ex.server_name != anchor.server_name
+                || now.saturating_sub(ex.timestamp) >= 4
+        }
+        None => true,
+    };
+    if should_write {
+        let _ = crate::storage::save_context_anchor(&anchor);
     }
 }
 
@@ -1262,58 +1550,55 @@ pub fn get_focused_editor() -> Option<EditorType> {
         return Some(editor);
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
-            if let Ok(out) = std::process::Command::new("hyprctl").args(["activewindow", "-j"]).output() {
-                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
-                    let class = val.get("class").and_then(|c| c.as_str()).unwrap_or("").to_lowercase();
-                    let title = val.get("title").and_then(|t| t.as_str()).unwrap_or("").to_lowercase();
-                    let init_title = val.get("initialTitle").and_then(|t| t.as_str()).unwrap_or("").to_lowercase();
+    if let Some(win) = query_active_window() {
+        let class = win.class.to_lowercase();
+        let title = win.title.to_lowercase();
+        let init_title = win.init_title.to_lowercase();
 
-                    if class.contains("code") {
-                        return Some(EditorType::VSCode);
-                    }
-                    if class.contains("vscodium") {
-                        return Some(EditorType::VSCodium);
-                    }
-                    if class.contains("cursor") {
-                        return Some(EditorType::Cursor);
-                    }
-                    if class.contains("neovide") {
-                        return Some(EditorType::Neovide);
-                    }
-                    if class.contains("obsidian") {
-                        return Some(EditorType::Obsidian);
-                    }
-                    if class.contains("typora") {
-                        return Some(EditorType::Typora);
-                    }
-                    if class.contains("libreoffice") || class.contains("soffice") {
-                        return Some(EditorType::LibreOffice);
-                    }
-                    if PDF_BINS.iter().any(|k| class.contains(k)) {
-                        return Some(EditorType::PdfReader);
-                    }
-                    if IMAGE_BINS.iter().any(|k| class.contains(k)) {
-                        return Some(EditorType::ImageEditor);
-                    }
-                    if VIDEO_BINS.iter().any(|k| class.contains(k)) {
-                        return Some(EditorType::VideoAudio);
-                    }
-                    if title.contains("helix") || class.contains("helix") || title.contains("hx") {
-                        return Some(EditorType::Helix);
-                    }
-                    if title.contains("nvim") || title.contains("neovim") || init_title.contains("nvim") {
-                        return Some(EditorType::Neovim);
-                    }
-                    if let Some(pid) = val.get("pid").and_then(|p| p.as_i64()) {
-                        if let Ok(pgrep) = std::process::Command::new("pgrep").args(["-P", &pid.to_string(), "nvim"]).output() {
-                            if !pgrep.stdout.is_empty() {
-                                return Some(EditorType::Neovim);
-                            }
-                        }
-                    }
+        if class.contains("code") {
+            return Some(EditorType::VSCode);
+        }
+        if class.contains("vscodium") {
+            return Some(EditorType::VSCodium);
+        }
+        if class.contains("cursor") {
+            return Some(EditorType::Cursor);
+        }
+        if class.contains("neovide") {
+            return Some(EditorType::Neovide);
+        }
+        if class.contains("obsidian") {
+            return Some(EditorType::Obsidian);
+        }
+        if class.contains("typora") {
+            return Some(EditorType::Typora);
+        }
+        if class.contains("libreoffice") || class.contains("soffice") {
+            return Some(EditorType::LibreOffice);
+        }
+        if PDF_BINS.iter().any(|k| class.contains(k)) {
+            return Some(EditorType::PdfReader);
+        }
+        if IMAGE_BINS.iter().any(|k| class.contains(k)) {
+            return Some(EditorType::ImageEditor);
+        }
+        if VIDEO_BINS.iter().any(|k| class.contains(k)) {
+            return Some(EditorType::VideoAudio);
+        }
+        if title.contains("helix") || class.contains("helix") || title.contains("hx") {
+            return Some(EditorType::Helix);
+        }
+        if title.contains("nvim") || title.contains("neovim") || init_title.contains("nvim") {
+            return Some(EditorType::Neovim);
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(pid) = win.pid {
+            if let Ok(pgrep) = std::process::Command::new("pgrep")
+                .args(["-P", &pid.to_string(), "nvim"])
+                .output()
+            {
+                if !pgrep.stdout.is_empty() {
+                    return Some(EditorType::Neovim);
                 }
             }
         }
@@ -1323,4 +1608,55 @@ pub fn get_focused_editor() -> Option<EditorType> {
 
 pub fn is_editor_focused() -> bool {
     get_focused_editor().is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_focused_sway_node() {
+        let tree = serde_json::json!({
+            "type": "root",
+            "focused": false,
+            "nodes": [
+                {
+                    "type": "workspace",
+                    "focused": false,
+                    "nodes": [
+                        {
+                            "type": "con",
+                            "focused": true,
+                            "app_id": "obsidian",
+                            "name": "Architecture Notes - Obsidian",
+                            "pid": 4242
+                        }
+                    ],
+                    "floating_nodes": []
+                }
+            ],
+            "floating_nodes": []
+        });
+
+        let found = find_focused_sway_node(&tree).expect("should find focused leaf");
+        assert_eq!(found.class, "obsidian");
+        assert_eq!(found.title, "Architecture Notes - Obsidian");
+        assert_eq!(found.pid, Some(4242));
+    }
+
+    #[test]
+    fn test_clean_window_doc_title_strips_app_suffix() {
+        assert_eq!(
+            clean_window_doc_title("Chapter 1 — LibreOffice Writer"),
+            "Chapter 1"
+        );
+        assert_eq!(
+            clean_window_doc_title("Lecture Notes - Obsidian"),
+            "Lecture Notes"
+        );
+        assert_eq!(
+            clean_window_doc_title("Lecture Notes - Vault - Obsidian"),
+            "Lecture Notes - Vault"
+        );
+    }
 }

@@ -19,6 +19,7 @@ struct FlowSnapshot {
     break_secs_available: u64,
     focus_ratio: u32,
     break_ratio: u32,
+    today_focus_mins: u64,
     progress: f32,
 }
 
@@ -30,6 +31,7 @@ impl From<&Flowmodoro> for FlowSnapshot {
             FlowState::Focus => "focus",
             FlowState::Break => "break",
         };
+        let stats = storage::load_user_stats();
         Self {
             state,
             time: flow.current_time_display(),
@@ -39,6 +41,7 @@ impl From<&Flowmodoro> for FlowSnapshot {
             break_secs_available: flow.calculate_break_time(),
             focus_ratio: flow.focus_ratio,
             break_ratio: flow.break_ratio,
+            today_focus_mins: stats.today_focus_mins(),
             progress: flow.progress_pct(),
         }
     }
@@ -259,6 +262,47 @@ fn dispatch_request(request: CoreRequest) -> Result<Value, String> {
             storage::save_shutdown_record(&record).map_err(|error| error.to_string())?;
             Ok(serde_json::json!({ "saved": true }))
         }
+        "stats.load" => {
+            let stats = storage::load_user_stats();
+            let mut val = serde_json::to_value(&stats).map_err(|error| error.to_string())?;
+            if let Some(obj) = val.as_object_mut() {
+                obj.insert(
+                    "today_focus_mins".to_string(),
+                    serde_json::json!(stats.today_focus_mins()),
+                );
+                obj.insert(
+                    "tier_title".to_string(),
+                    serde_json::json!(stats.tier().title_en()),
+                );
+            }
+            Ok(val)
+        }
+        "update.status" => serde_json::to_value(crate::updater::load_cached_status())
+            .map_err(|error| error.to_string()),
+        "update.check" => {
+            #[derive(Deserialize, Default)]
+            struct UpdateCheckPayload {
+                #[serde(default)]
+                force: bool,
+            }
+            let payload: UpdateCheckPayload = if request.payload.is_null() {
+                UpdateCheckPayload::default()
+            } else {
+                serde_json::from_value(request.payload).map_err(|error| error.to_string())?
+            };
+            let info = crate::updater::check_for_updates(payload.force)?;
+            serde_json::to_value(info).map_err(|error| error.to_string())
+        }
+        "update.dismiss" => {
+            #[derive(Deserialize)]
+            struct UpdateDismissPayload {
+                version: String,
+            }
+            let payload: UpdateDismissPayload =
+                serde_json::from_value(request.payload).map_err(|error| error.to_string())?;
+            crate::updater::dismiss_version(&payload.version);
+            Ok(serde_json::json!({ "dismissed": true }))
+        }
         operation => Err(format!("Unsupported core operation: {operation}")),
     }
 }
@@ -416,12 +460,20 @@ pub unsafe extern "C" fn tether_flow_free(handle: *mut Flowmodoro) {
     }
 }
 
+fn sync_ffi_flow_stats(flow: &Flowmodoro) {
+    let mut stats = storage::load_user_stats();
+    if stats.sync_focus_session(flow.state, flow.start_epoch, flow.elapsed_focus_secs) {
+        let _ = storage::save_user_stats(&stats);
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn tether_flow_tick(handle: *mut Flowmodoro, elapsed_millis: u64) -> bool {
     let Some(flow) = (unsafe { handle.as_mut() }) else {
         return false;
     };
     flow.tick(Duration::from_millis(elapsed_millis));
+    sync_ffi_flow_stats(flow);
     true
 }
 
@@ -430,6 +482,7 @@ pub unsafe extern "C" fn tether_flow_action(handle: *mut Flowmodoro, action: u32
     let Some(flow) = (unsafe { handle.as_mut() }) else {
         return false;
     };
+    sync_ffi_flow_stats(flow);
     match action {
         0 => flow.start_focus(),
         1 => flow.start_micro_start(),
@@ -439,6 +492,7 @@ pub unsafe extern "C" fn tether_flow_action(handle: *mut Flowmodoro, action: u32
         5 => flow.reset(),
         _ => return false,
     }
+    sync_ffi_flow_stats(flow);
     true
 }
 
@@ -538,5 +592,11 @@ mod tests {
         let ram: serde_json::Value = serde_json::from_str(&ram_json).unwrap();
         assert_eq!(ram["ok"], true);
         assert!(ram["data"].is_array());
+
+        let stats_json = handle_json_request(r#"{"operation":"stats.load"}"#);
+        let stats: serde_json::Value = serde_json::from_str(&stats_json).unwrap();
+        assert_eq!(stats["ok"], true);
+        assert!(stats["data"]["today_focus_mins"].is_u64());
+        assert!(stats["data"]["tier_title"].is_string());
     }
 }

@@ -15,6 +15,7 @@ mod ui;
 pub mod speedbump;
 pub mod quick_capture;
 pub mod dopamine;
+pub mod updater;
 
 use libadwaita::prelude::*;
 use libadwaita::Application;

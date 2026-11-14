@@ -68,42 +68,47 @@ public sealed partial class MainWindow : Window
                 break;
             case "ramdump":
                 ShowPreview(
+                    route,
                     "RAM-dump",
                     "Get the open loops out of your head.",
                     "Capture what you’re doing, what’s on your mind, and the next step so you can return without rebuilding context.");
                 break;
             case "impulses":
                 ShowPreview(
+                    route,
                     "Impulses",
                     "Park a thought. Return to your task.",
                     "Capture small distractions, review them later, and keep your focus session intact.");
                 break;
             case "momentum":
                 ShowPreview(
+                    route,
                     "Momentum",
                     "Notice progress without streak pressure.",
-                    "Your weekly focus, completed sessions, and parked impulses will live here.");
+                    "Your weekly focus, completed sessions, and parked impulses live here.");
                 break;
             case "rewards":
                 ShowPreview(
+                    route,
                     "Rewards",
                     "Make breaks something to look forward to.",
                     "Use focus points to add, choose, and redeem rewards that work for you.");
                 break;
             case "settings":
                 ShowPreview(
+                    route,
                     "Settings",
                     "Make Tether fit the way you work.",
-                    "Configure focus ratios, language, impulse files, soundscapes, and editor integrations.");
+                    "Configure focus ratios, time anchors, and hard-stop reminders.");
                 break;
         }
     }
 
-    private void ShowPreview(string title, string subtitle, string description)
+    private void ShowPreview(string route, string title, string subtitle, string description)
     {
         ContentFrame.Navigate(
             typeof(FeaturePreviewPage),
-            new FeaturePreviewInfo(title, subtitle, description));
+            new FeaturePreviewInfo(route, title, subtitle, description));
     }
 
     private void ContentFrame_Navigated(object sender, NavigationEventArgs args)

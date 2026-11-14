@@ -49,6 +49,19 @@ pub struct AppState {
     pub asked_editor_minimize_prompt: bool,
     pub last_theme_mtime: Option<std::time::SystemTime>,
     pub editing_ramdump_idx: Option<usize>,
+    pub last_update_check: Instant,
+    pub update_check_in_flight: bool,
+    pub latest_update_info: Option<crate::updater::UpdateCheckInfo>,
+}
+
+impl AppState {
+    fn sync_focus_stats(&mut self) -> bool {
+        self.stats.sync_focus_session(
+            self.flow.state,
+            self.flow.start_epoch,
+            self.flow.elapsed_focus_secs,
+        )
+    }
 }
 
 pub struct TetherUi {
@@ -67,6 +80,9 @@ pub struct TetherUi {
     pub shutdown_btn: gtk4::Button,
     pub editor_btn: gtk4::Button,
     pub pill_mode_btn: gtk4::Button,
+    pub update_header_btn: gtk4::Button,
+    pub update_banner_group: PreferencesGroup,
+    pub update_banner_row: ActionRow,
 
     // Dynamic flowmodoro widgets
     pub timer_label: gtk4::Label,
@@ -147,6 +163,8 @@ pub struct TetherUi {
     pub install_ext_btn: gtk4::Button,
     pub editor_minimize_combo: ComboRow,
     pub pos_row: ActionRow,
+    pub update_status_row: ActionRow,
+    pub check_update_now_btn: gtk4::Button,
     pub tray: Option<Rc<crate::tray::TetherTray>>,
 }
 
@@ -212,6 +230,9 @@ impl TetherUi {
             asked_editor_minimize_prompt: false,
             last_theme_mtime: initial_theme_mtime,
             editing_ramdump_idx: None,
+            last_update_check: Instant::now(),
+            update_check_in_flight: false,
+            latest_update_info: None,
         }));
 
         let window = gtk4::ApplicationWindow::builder()
@@ -285,6 +306,18 @@ impl TetherUi {
             .build();
         header_bar.pack_end(&editor_btn);
 
+        // Right Header: Update Available Pill (hidden unless newer release found)
+        let update_header_btn = gtk4::Button::builder()
+            .label("⬆ Oppdatering")
+            .tooltip_text(match initial_lang {
+                Language::Norwegian => "Ny Tether-versjon tilgjengelig — klikk for å åpne utgivelsen",
+                _ => "New Tether release available — click to open release page",
+            })
+            .css_classes(["pill", "suggested-action"])
+            .visible(false)
+            .build();
+        header_bar.pack_end(&update_header_btn);
+
         // --- PAGE 1: Flowmodoro ---
         let flow_scroll = gtk4::ScrolledWindow::builder()
             .hscrollbar_policy(gtk4::PolicyType::Never)
@@ -300,6 +333,42 @@ impl TetherUi {
         flow_box.set_margin_end(16);
         flow_box.set_hexpand(true);
         flow_box.set_vexpand(true);
+
+        // Update Available Banner (hidden unless a newer release is published)
+        let update_banner_group = PreferencesGroup::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Ny versjon tilgjengelig",
+                _ => "Update Available",
+            })
+            .visible(false)
+            .build();
+
+        let update_banner_row = ActionRow::builder()
+            .title("Tether")
+            .build();
+        update_banner_row.add_prefix(&gtk4::Image::from_icon_name("software-update-available-symbolic"));
+
+        let update_open_btn = gtk4::Button::builder()
+            .label(match initial_lang {
+                Language::Norwegian => "Åpne utgivelse",
+                _ => "View release",
+            })
+            .css_classes(["suggested-action", "pill"])
+            .valign(gtk4::Align::Center)
+            .build();
+        let update_dismiss_btn = gtk4::Button::builder()
+            .icon_name("window-close-symbolic")
+            .tooltip_text(match initial_lang {
+                Language::Norwegian => "Skjul for denne versjonen",
+                _ => "Dismiss for this version",
+            })
+            .css_classes(["flat", "circular"])
+            .valign(gtk4::Align::Center)
+            .build();
+        update_banner_row.add_suffix(&update_open_btn);
+        update_banner_row.add_suffix(&update_dismiss_btn);
+        update_banner_group.add(&update_banner_row);
+        flow_box.append(&update_banner_group);
 
         // "Where was I?" Context Recovery Card (shown after absence >= 4h or manually)
         let where_was_i_group = PreferencesGroup::builder()
@@ -1438,6 +1507,49 @@ impl TetherUi {
         set_pos_group.add(&pos_row);
         settings_page.add(&set_pos_group);
 
+        // Group: Updates & Version
+        let set_update_group = PreferencesGroup::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Oppdateringer og versjon",
+                _ => "Updates & Version",
+            })
+            .description(match initial_lang {
+                Language::Norwegian => "Sjekk GitHub Releases for nye versjoner av Tether",
+                _ => "Check GitHub Releases for new versions of Tether",
+            })
+            .build();
+
+        let auto_update_switch = SwitchRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Automatisk versjonssjekk",
+                _ => "Automatic update check",
+            })
+            .subtitle(match initial_lang {
+                Language::Norwegian => "Varsle ved oppstart når en ny release er ute",
+                _ => "Notify when a new release is published",
+            })
+            .active(initial_settings.check_updates_automatically)
+            .build();
+        set_update_group.add(&auto_update_switch);
+
+        let update_status_row = ActionRow::builder()
+            .title(&format!("Tether v{}", crate::updater::CURRENT_VERSION))
+            .subtitle(match initial_lang {
+                Language::Norwegian => "Ikke sjekket ennå i denne økten",
+                _ => "Not checked yet in this session",
+            })
+            .build();
+        let check_update_now_btn = gtk4::Button::builder()
+            .label(match initial_lang {
+                Language::Norwegian => "Sjekk nå",
+                _ => "Check now",
+            })
+            .valign(gtk4::Align::Center)
+            .build();
+        update_status_row.add_suffix(&check_update_now_btn);
+        set_update_group.add(&update_status_row);
+        settings_page.add(&set_update_group);
+
         let set_stack_page = view_stack.add_titled(&settings_page, Some("settings"), "Oppsett");
         set_stack_page.set_icon_name(Some("preferences-system-symbolic"));
 
@@ -1532,6 +1644,9 @@ impl TetherUi {
             shutdown_btn,
             editor_btn,
             pill_mode_btn,
+            update_header_btn,
+            update_banner_group,
+            update_banner_row,
             timer_label,
             hero_badge,
             sub_info_label,
@@ -1594,6 +1709,8 @@ impl TetherUi {
             install_ext_btn: install_ext_btn.clone(),
             editor_minimize_combo: editor_minimize_combo.clone(),
             pos_row: pos_row.clone(),
+            update_status_row: update_status_row.clone(),
+            check_update_now_btn: check_update_now_btn.clone(),
             tray: crate::tray::TetherTray::new().ok().map(Rc::new),
         });
 
@@ -2275,6 +2392,71 @@ impl TetherUi {
                 }
             });
         }
+        {
+            let state_clone = state.clone();
+            ui.update_header_btn.connect_clicked(move |_| {
+                let url = state_clone
+                    .borrow()
+                    .latest_update_info
+                    .as_ref()
+                    .map(|info| info.html_url.clone())
+                    .unwrap_or_else(|| crate::updater::GITHUB_RELEASES_PAGE.to_string());
+                crate::updater::open_release_url(&url);
+            });
+        }
+        {
+            let state_clone = state.clone();
+            update_open_btn.connect_clicked(move |_| {
+                let url = state_clone
+                    .borrow()
+                    .latest_update_info
+                    .as_ref()
+                    .map(|info| info.html_url.clone())
+                    .unwrap_or_else(|| crate::updater::GITHUB_RELEASES_PAGE.to_string());
+                crate::updater::open_release_url(&url);
+            });
+        }
+        {
+            let ui_clone = ui.clone();
+            update_dismiss_btn.connect_clicked(move |_| {
+                let version = {
+                    let mut st = ui_clone.state.borrow_mut();
+                    let ver = st
+                        .latest_update_info
+                        .as_ref()
+                        .map(|info| info.latest_version.clone())
+                        .unwrap_or_default();
+                    if let Some(ref mut info) = st.latest_update_info {
+                        info.dismissed = true;
+                    }
+                    ver
+                };
+                if !version.is_empty() {
+                    crate::updater::dismiss_version(&version);
+                }
+                ui_clone.update_banner_group.set_visible(false);
+            });
+        }
+        {
+            let ui_clone = ui.clone();
+            auto_update_switch.connect_active_notify(move |sw| {
+                let enabled = sw.is_active();
+                {
+                    let mut st = ui_clone.state.borrow_mut();
+                    st.settings.check_updates_automatically = enabled;
+                    let _ = storage::save_settings(&st.settings);
+                }
+                if enabled {
+                    ui_clone.trigger_update_check(false);
+                }
+            });
+        }
+        {
+            let ui_clone = ui.clone();
+            ui.check_update_now_btn.connect_clicked(move |_| {
+                ui_clone.trigger_update_check(true);
+            });
+        }
 
         // Keyboard shortcuts (Escape toggles between Mini-HUD and Full window)
         let key_controller = gtk4::EventControllerKey::new();
@@ -2297,6 +2479,14 @@ impl TetherUi {
         ui.refresh_where_was_i(false);
         ui.refresh_last_ramdump_row();
         ui.refresh_ramdumps_list();
+
+        let cached_update = crate::updater::load_cached_status();
+        if cached_update.checked_at_epoch > 0 {
+            ui.apply_update_check_result(Ok(cached_update), false);
+        }
+        if initial_settings.check_updates_automatically {
+            ui.trigger_update_check(false);
+        }
 
         // 500ms Timer loop for UI updates, IPC sync, and live theme reloading
         {
@@ -2970,7 +3160,7 @@ impl TetherUi {
         }
     }
 
-    pub fn update_ui_tick(&self) {
+    pub fn update_ui_tick(self: &Rc<Self>) {
         if storage::take_shutdown_request() {
             self.set_mini_hud_mode(false);
             self.window.set_visible(true);
@@ -3089,6 +3279,10 @@ impl TetherUi {
                 }
             }
 
+            if st.sync_focus_stats() {
+                let _ = storage::save_user_stats(&st.stats);
+            }
+
             if old != cur {
                 st.previous_state = cur;
                 st.audio.handle_flow_state_transition(old, cur);
@@ -3096,16 +3290,7 @@ impl TetherUi {
                     st.speedbump.reset_snooze();
                 }
 
-                // Stats update on state transition (unngå duplisering ved gjenopptatt fokus)
-                if old == FlowState::Focus && (cur == FlowState::Break || cur == FlowState::Idle) {
-                    let total_mins = st.flow.elapsed_focus_secs / 60;
-                    let newly_mins = total_mins.saturating_sub(st.last_recorded_focus_mins);
-                    if newly_mins > 0 {
-                        st.stats.record_focus_minutes(newly_mins);
-                        st.last_recorded_focus_mins = total_mins;
-                        let _ = storage::save_user_stats(&st.stats);
-                    }
-                } else if old == FlowState::MicroStart && cur == FlowState::Focus {
+                if old == FlowState::MicroStart && cur == FlowState::Focus {
                     st.stats.record_micro_start();
                     st.dopamine.earn_micro_start_bonus();
                     let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
@@ -3222,6 +3407,18 @@ impl TetherUi {
                     }
                 }
             }
+        }
+
+        // Periodic update check every 6 hours if enabled
+        let should_periodic_update = {
+            let st = self.state.borrow();
+            st.settings.check_updates_automatically
+                && !st.update_check_in_flight
+                && now.duration_since(st.last_update_check)
+                    >= Duration::from_secs(crate::updater::UPDATE_CHECK_INTERVAL_SECS)
+        };
+        if should_periodic_update {
+            self.trigger_update_check(false);
         }
 
         // Update Dynamic UI Labels
@@ -3405,7 +3602,7 @@ impl TetherUi {
             Language::Norwegian => format!("Forhold: {}m : {}m", st.flow.focus_ratio, st.flow.break_ratio),
             _ => format!("Ratio: {}m : {}m", st.flow.focus_ratio, st.flow.break_ratio),
         });
-        let total_mins = st.flow.total_focus_secs / 60;
+        let total_mins = st.stats.today_focus_mins();
         self.today_stats_label.set_label(&Strings::stats_focus_today(lang, total_mins));
 
         // Context Anchor update
@@ -3513,10 +3710,19 @@ impl TetherUi {
         let (_old_state, new_state) = {
             let mut st = self.state.borrow_mut();
             let old_state = st.flow.state;
+            let mut stats_changed = st.sync_focus_stats();
             st.flow.toggle();
             let new_state = st.flow.state;
+            stats_changed |= st.sync_focus_stats();
+            if stats_changed {
+                let _ = storage::save_user_stats(&st.stats);
+            }
             st.previous_state = new_state;
             st.audio.handle_flow_state_transition(old_state, new_state);
+            if old_state == FlowState::Focus && new_state != FlowState::Focus {
+                st.speedbump.reset_snooze();
+                let _ = crate::dopamine::save_dopamine_account(&st.dopamine);
+            }
             (old_state, new_state)
         };
         if new_state == FlowState::Break {
@@ -3530,7 +3736,12 @@ impl TetherUi {
     pub fn start_micro(&self) {
         let mut st = self.state.borrow_mut();
         let old_state = st.flow.state;
+        let mut stats_changed = st.sync_focus_stats();
         st.flow.start_micro_start();
+        stats_changed |= st.sync_focus_stats();
+        if stats_changed {
+            let _ = storage::save_user_stats(&st.stats);
+        }
         st.last_recorded_focus_mins = 0;
         let new_state = st.flow.state;
         st.previous_state = new_state;
@@ -3539,7 +3750,12 @@ impl TetherUi {
 
     pub fn reset_flow(&self) {
         let mut st = self.state.borrow_mut();
+        let mut stats_changed = st.sync_focus_stats();
         st.flow.reset();
+        stats_changed |= st.sync_focus_stats();
+        if stats_changed {
+            let _ = storage::save_user_stats(&st.stats);
+        }
         st.last_recorded_focus_mins = 0;
         st.previous_state = FlowState::Idle;
     }
@@ -4231,16 +4447,12 @@ impl TetherUi {
                     let mut st = state_finish.borrow_mut();
 
                     // Record any accrued focus minutes before resetting
-                    if st.flow.state == FlowState::Focus {
-                        let total_mins = st.flow.elapsed_focus_secs / 60;
-                        let newly_mins = total_mins.saturating_sub(st.last_recorded_focus_mins);
-                        if newly_mins > 0 {
-                            st.stats.record_focus_minutes(newly_mins);
-                            let _ = storage::save_user_stats(&st.stats);
-                        }
-                    }
-
+                    let mut stats_changed = st.sync_focus_stats();
                     st.flow.reset();
+                    stats_changed |= st.sync_focus_stats();
+                    if stats_changed {
+                        let _ = storage::save_user_stats(&st.stats);
+                    }
                     st.last_recorded_focus_mins = 0;
                     st.previous_state = FlowState::Idle;
                     st.audio.stop();
@@ -4510,6 +4722,140 @@ impl TetherUi {
             } else {
                 btn.set_label("Installer utvidelse");
                 btn.add_css_class("suggested-action");
+            }
+        }
+    }
+
+    pub fn trigger_update_check(self: &Rc<Self>, force: bool) {
+        let lang = {
+            let mut st = self.state.borrow_mut();
+            if st.update_check_in_flight {
+                return;
+            }
+            st.update_check_in_flight = true;
+            st.last_update_check = Instant::now();
+            st.settings.language.resolve()
+        };
+
+        self.check_update_now_btn.set_sensitive(false);
+        self.update_status_row.set_subtitle(match lang {
+            Language::Norwegian => "Sjekker GitHub etter ny versjon...",
+            _ => "Checking GitHub for updates...",
+        });
+
+        let (tx, rx) = std::sync::mpsc::channel::<Result<crate::updater::UpdateCheckInfo, String>>();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::updater::check_for_updates(force));
+        });
+
+        let ui_weak = Rc::downgrade(self);
+        glib::timeout_add_local(Duration::from_millis(100), move || match rx.try_recv() {
+            Ok(res) => {
+                if let Some(ui) = ui_weak.upgrade() {
+                    ui.apply_update_check_result(res, force);
+                }
+                glib::ControlFlow::Break
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                if let Some(ui) = ui_weak.upgrade() {
+                    ui.state.borrow_mut().update_check_in_flight = false;
+                    ui.check_update_now_btn.set_sensitive(true);
+                }
+                glib::ControlFlow::Break
+            }
+        });
+    }
+
+    pub fn apply_update_check_result(
+        &self,
+        res: Result<crate::updater::UpdateCheckInfo, String>,
+        manual_force: bool,
+    ) {
+        let (lang, notify_enabled) = {
+            let mut st = self.state.borrow_mut();
+            st.update_check_in_flight = false;
+            (st.settings.language.resolve(), st.settings.notifications_enabled)
+        };
+        self.check_update_now_btn.set_sensitive(true);
+
+        match res {
+            Ok(info) => {
+                {
+                    let mut st = self.state.borrow_mut();
+                    st.latest_update_info = Some(info.clone());
+                }
+                if info.update_available {
+                    self.update_header_btn
+                        .set_label(&format!("⬆ v{}", info.latest_version));
+                    self.update_header_btn.set_visible(true);
+
+                    let title = match lang {
+                        Language::Norwegian => {
+                            format!("Ny versjon tilgjengelig: Tether v{}", info.latest_version)
+                        }
+                        _ => format!("Update available: Tether v{}", info.latest_version),
+                    };
+                    let subtitle = match lang {
+                        Language::Norwegian => format!(
+                            "Du kjører v{} — klikk for å se endringer og laste ned",
+                            info.current_version
+                        ),
+                        _ => format!(
+                            "You are running v{} — click to view release notes and download",
+                            info.current_version
+                        ),
+                    };
+                    self.update_banner_row
+                        .set_title(&glib::markup_escape_text(&title));
+                    self.update_banner_row
+                        .set_subtitle(&glib::markup_escape_text(&subtitle));
+                    self.update_banner_group
+                        .set_visible(!info.dismissed || manual_force);
+
+                    self.update_status_row
+                        .set_subtitle(&glib::markup_escape_text(&title));
+
+                    if notify_enabled && crate::updater::mark_version_notified(&info.latest_version)
+                    {
+                        let notify_title = match lang {
+                            Language::Norwegian => {
+                                format!("Tether v{} er tilgjengelig!", info.latest_version)
+                            }
+                            _ => format!("Tether v{} is available!", info.latest_version),
+                        };
+                        let notify_body = match lang {
+                            Language::Norwegian => format!(
+                                "Ny release publisert på GitHub (du har v{}).",
+                                info.current_version
+                            ),
+                            _ => format!(
+                                "New release published on GitHub (you have v{}).",
+                                info.current_version
+                            ),
+                        };
+                        crate::flowmodoro::notify(&notify_title, &notify_body);
+                    }
+                } else {
+                    self.update_header_btn.set_visible(false);
+                    self.update_banner_group.set_visible(false);
+                    let status_sub = match lang {
+                        Language::Norwegian => {
+                            format!("Du kjører nyeste versjon (v{})", info.current_version)
+                        }
+                        _ => format!("You are up to date (v{})", info.current_version),
+                    };
+                    self.update_status_row
+                        .set_subtitle(&glib::markup_escape_text(&status_sub));
+                }
+            }
+            Err(err) => {
+                let status_sub = match lang {
+                    Language::Norwegian => format!("Kunne ikke sjekke oppdateringer: {}", err),
+                    _ => format!("Update check failed: {}", err),
+                };
+                self.update_status_row
+                    .set_subtitle(&glib::markup_escape_text(&status_sub));
             }
         }
     }

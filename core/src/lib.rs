@@ -8,3 +8,4 @@ pub mod impulse;
 pub mod ramdump;
 pub mod storage;
 pub mod time_anchor;
+pub mod updater;

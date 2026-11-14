@@ -4,36 +4,33 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <ScrollViewer HorizontalScrollMode="Disabled"
                   VerticalScrollBarVisibility="Auto">
-        <Grid MinHeight="440" Padding="32">
-            <StackPanel MaxWidth="600"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Spacing="18">
-                <Border HorizontalAlignment="Left"
-                        Padding="12,6"
-                        CornerRadius="999"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                    <TextBlock Text="COMING TO WINDOWS"
-                               FontSize="11"
-                               FontWeight="SemiBold"
-                               CharacterSpacing="90" />
-                </Border>
+        <Grid MinHeight="440" Padding="24">
+            <StackPanel MaxWidth="680"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Top"
+                        Spacing="16">
                 <TextBlock x:Name="PageTitle"
                            Text="Feature"
-                           FontSize="34"
+                           FontSize="28"
                            FontWeight="SemiBold"
                            TextWrapping="Wrap" />
                 <TextBlock x:Name="PageSubtitle"
                            Text="A calmer way to work."
-                           FontSize="20"
-                           Opacity="0.8"
+                           FontSize="16"
+                           Opacity="0.82"
                            TextWrapping="Wrap" />
                 <TextBlock x:Name="PageDescription"
-                           Text="This feature is still being ported."
-                           FontSize="15"
+                           Text=""
+                           FontSize="13"
                            Opacity="0.65"
-                           TextWrapping="Wrap"
-                           MaxWidth="520" />
+                           TextWrapping="Wrap" />
+                <TextBlock x:Name="StatusBanner"
+                           Visibility="Collapsed"
+                           FontSize="13"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap" />
+                <StackPanel x:Name="InteractivePanel"
+                            Spacing="12" />
             </StackPanel>
         </Grid>
     </ScrollViewer>

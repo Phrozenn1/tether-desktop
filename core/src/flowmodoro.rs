@@ -132,6 +132,9 @@ impl Flowmodoro {
             "break" => {
                 self.state = FlowState::Break;
                 self.start_epoch = shared.start_epoch;
+                self.elapsed_focus_secs = shared.elapsed_focus_sec;
+                self.focus_at_last_break = shared.elapsed_focus_sec;
+                self.banked_break_secs = shared.banked_break_sec;
                 self.break_duration_sec = shared.break_duration_sec.max(shared.remaining_break_sec);
                 self.initial_break_secs = self.break_duration_sec;
                 let elapsed = if self.start_epoch > 0 && now >= self.start_epoch {
@@ -365,6 +368,7 @@ impl Flowmodoro {
                 }
                 if self.remaining_break_secs == 0 {
                     self.state = FlowState::Idle;
+                    self.elapsed_focus_secs = 0;
                     self.start_epoch = 0;
                     self.break_duration_sec = 0;
                     self.banked_break_secs = 0;
@@ -428,8 +432,15 @@ pub fn apply_shared_flow_action(action: &str, writer: &str) -> Result<SharedFlow
         flow.hydrate_from_shared(shared);
     }
 
+    let mut stats = storage::load_user_stats();
+    let mut stats_changed =
+        stats.sync_focus_session(flow.state, flow.start_epoch, flow.elapsed_focus_secs);
+
     match action {
         "status" => {
+            if stats_changed {
+                let _ = storage::save_user_stats(&stats);
+            }
             let effective_writer = existing
                 .as_ref()
                 .map(|s| s.writer.as_str())
@@ -441,6 +452,12 @@ pub fn apply_shared_flow_action(action: &str, writer: &str) -> Result<SharedFlow
         "micro_start" => flow.start_micro_start(),
         "reset" => flow.reset(),
         other => return Err(format!("Unsupported flow action: {other}")),
+    }
+
+    stats_changed |=
+        stats.sync_focus_session(flow.state, flow.start_epoch, flow.elapsed_focus_secs);
+    if stats_changed {
+        let _ = storage::save_user_stats(&stats);
     }
 
     Ok(flow.to_shared_state(writer))
@@ -520,5 +537,42 @@ mod tests {
         assert_eq!(f.elapsed_focus_secs, 0);
         assert_eq!(f.remaining_break_secs, 0);
         assert_eq!(f.banked_break_secs, 0);
+    }
+
+    #[test]
+    fn test_daily_focus_stats_accumulate_across_sessions_and_restarts() {
+        let mut stats = storage::UserStats::default();
+        let mut f = Flowmodoro::default();
+        f.focus_ratio = 45;
+        f.break_ratio = 15;
+
+        // Session 1: 14 minutes focused
+        f.start_focus();
+        f.elapsed_focus_secs = 14 * 60;
+        assert!(stats.sync_focus_session(f.state, f.start_epoch, f.elapsed_focus_secs));
+        assert_eq!(stats.today_focus_mins(), 14);
+        assert_eq!(stats.current_week_sessions, 1);
+
+        // Pause to Break, then resume Focus up to 20 minutes (+6 new mins, same session)
+        f.start_break();
+        let _ = stats.sync_focus_session(f.state, f.start_epoch, f.elapsed_focus_secs);
+        f.resume_focus_from_break();
+        f.elapsed_focus_secs = 20 * 60;
+        assert!(stats.sync_focus_session(f.state, f.start_epoch, f.elapsed_focus_secs));
+        assert_eq!(stats.today_focus_mins(), 20);
+        assert_eq!(stats.current_week_sessions, 1);
+
+        // Explicit reset -> Idle, then Session 2 for 15 minutes (simulating app/PC restart + new timer)
+        f.reset();
+        assert!(stats.sync_focus_session(f.state, f.start_epoch, f.elapsed_focus_secs));
+
+        let mut f2 = Flowmodoro::default();
+        f2.start_focus();
+        // Ensure distinct start_epoch from Session 1 even within same test second
+        f2.start_epoch = f.start_epoch.saturating_add(100);
+        f2.elapsed_focus_secs = 15 * 60;
+        assert!(stats.sync_focus_session(f2.state, f2.start_epoch, f2.elapsed_focus_secs));
+        assert_eq!(stats.today_focus_mins(), 35);
+        assert_eq!(stats.current_week_sessions, 2);
     }
 }

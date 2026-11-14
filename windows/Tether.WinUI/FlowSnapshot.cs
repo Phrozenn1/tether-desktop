@@ -28,6 +28,9 @@ internal sealed class FlowSnapshot
     [JsonPropertyName("break_ratio")]
     public uint BreakRatio { get; set; }
 
+    [JsonPropertyName("today_focus_mins")]
+    public ulong TodayFocusMins { get; set; }
+
     [JsonPropertyName("progress")]
     public float Progress { get; set; }
 }

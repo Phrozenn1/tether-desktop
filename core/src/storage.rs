@@ -265,6 +265,8 @@ pub struct TetherSettings {
     pub ai_assist_mode: AiAssistMode,
     #[serde(default = "default_ollama_model")]
     pub ollama_model: String,
+    #[serde(default = "default_true")]
+    pub check_updates_automatically: bool,
 }
 
 fn default_focus_ratio() -> u32 { 45 }
@@ -330,6 +332,7 @@ impl Default for TetherSettings {
             hard_stop_label: String::new(),
             ai_assist_mode: AiAssistMode::Auto,
             ollama_model: default_ollama_model(),
+            check_updates_automatically: true,
         }
     }
 }
@@ -1521,6 +1524,10 @@ pub struct UserStats {
     pub daily_mins: std::collections::HashMap<String, u32>,
     #[serde(default)]
     pub xp: u64,
+    #[serde(default)]
+    pub active_session_epoch: u64,
+    #[serde(default)]
+    pub active_session_recorded_mins: u64,
 }
 
 fn default_week_identifier() -> String {
@@ -1537,6 +1544,8 @@ impl Default for UserStats {
             week_identifier: default_week_identifier(),
             daily_mins: std::collections::HashMap::new(),
             xp: 0,
+            active_session_epoch: 0,
+            active_session_recorded_mins: 0,
         }
     }
 }
@@ -1564,18 +1573,81 @@ impl UserStats {
         }
     }
 
-    pub fn record_focus_minutes(&mut self, minutes: u64) {
+    pub fn today_focus_mins(&self) -> u64 {
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        self.daily_mins.get(&today).copied().unwrap_or(0) as u64
+    }
+
+    pub fn record_focus_minutes_delta(&mut self, minutes: u64, count_session: bool) {
         if minutes == 0 {
             return;
         }
         self.check_week_rollover();
         self.total_focus_mins += minutes;
         self.current_week_mins += minutes;
-        self.current_week_sessions += 1;
+        if count_session {
+            self.current_week_sessions += 1;
+        }
         self.xp += minutes * 10;
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let current = self.daily_mins.entry(today).or_insert(0);
         *current += minutes as u32;
+    }
+
+    pub fn record_focus_minutes(&mut self, minutes: u64) {
+        self.record_focus_minutes_delta(minutes, true);
+    }
+
+    pub fn sync_focus_session(
+        &mut self,
+        state: crate::flowmodoro::FlowState,
+        start_epoch: u64,
+        elapsed_focus_secs: u64,
+    ) -> bool {
+        match state {
+            crate::flowmodoro::FlowState::Focus => {
+                let elapsed_mins = elapsed_focus_secs / 60;
+                let mut changed = false;
+                if start_epoch != 0
+                    && self.active_session_epoch != start_epoch
+                    && elapsed_mins < self.active_session_recorded_mins
+                {
+                    self.active_session_recorded_mins = 0;
+                    changed = true;
+                }
+                if start_epoch != 0 && self.active_session_epoch != start_epoch {
+                    self.active_session_epoch = start_epoch;
+                    changed = true;
+                }
+                if elapsed_mins > self.active_session_recorded_mins {
+                    let delta = elapsed_mins - self.active_session_recorded_mins;
+                    let count_session = self.active_session_recorded_mins == 0;
+                    self.record_focus_minutes_delta(delta, count_session);
+                    self.active_session_recorded_mins = elapsed_mins;
+                    changed = true;
+                }
+                changed
+            }
+            crate::flowmodoro::FlowState::Break => {
+                let elapsed_mins = elapsed_focus_secs / 60;
+                if elapsed_mins > self.active_session_recorded_mins {
+                    let delta = elapsed_mins - self.active_session_recorded_mins;
+                    let count_session = self.active_session_recorded_mins == 0;
+                    self.record_focus_minutes_delta(delta, count_session);
+                    self.active_session_recorded_mins = elapsed_mins;
+                    return true;
+                }
+                false
+            }
+            crate::flowmodoro::FlowState::Idle | crate::flowmodoro::FlowState::MicroStart => {
+                if self.active_session_recorded_mins != 0 || self.active_session_epoch != 0 {
+                    self.active_session_recorded_mins = 0;
+                    self.active_session_epoch = 0;
+                    return true;
+                }
+                false
+            }
+        }
     }
 
     pub fn record_micro_start(&mut self) {

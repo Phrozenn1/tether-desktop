@@ -30,12 +30,13 @@ public sealed partial class FlowPage : Page
             "break" => "Take the time you’ve earned.",
             _ => "Ready when you are"
         };
-        HelperText.Text = snapshot.State switch
+        var baseHelper = snapshot.State switch
         {
             "focus" => $"Earned break: {FormatTime(snapshot.BreakSecsAvailable)} · Ratio {snapshot.FocusRatio}:{snapshot.BreakRatio}",
             "break" => "Resume when you feel ready; unused break time is banked.",
             _ => "Work at your own pace. Breaks are earned as you go."
         };
+        HelperText.Text = $"{baseHelper}\nTotal focus today: {snapshot.TodayFocusMins} min";
         ToggleButton.Content = snapshot.State switch
         {
             "idle" => "Start focus",
