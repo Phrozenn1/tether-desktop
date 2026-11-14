@@ -200,6 +200,19 @@ pub fn generate_css(colors: &OmarchyColors) -> String {
         .mini-audio-btn-stopped label {{
             color: {red};
         }}
+        .time-cue-pulse {{
+            border: 2px solid alpha({yellow}, 0.75);
+            background-color: alpha({yellow}, 0.08);
+            transition: all 350ms ease-in-out;
+        }}
+        .badge-hardstop {{
+            background-color: alpha({yellow}, 0.20);
+            color: {yellow};
+            border-radius: 9999px;
+            padding: 3px 10px;
+            font-weight: bold;
+            font-size: 11px;
+        }}
         "#,
         accent = colors.accent,
         bg = colors.background,

@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use chrono::Timelike;
 use gtk4::prelude::*;
 use libadwaita::glib;
 use libadwaita::prelude::*;
@@ -35,6 +36,9 @@ pub struct AppState {
     pub speedbump: crate::speedbump::SpeedbumpState,
     pub speedbump_active_prompt: bool,
     pub dopamine: crate::dopamine::DopamineAccount,
+    pub time_anchor: crate::time_anchor::TimeAnchorState,
+    pub where_was_i_dismissed: bool,
+    pub shutdown_window_open: bool,
     pub last_update: Instant,
     pub last_anchor_check: Instant,
     pub last_stats_check: Instant,
@@ -44,6 +48,7 @@ pub struct AppState {
     pub suppress_pos_ticks: u32,
     pub asked_editor_minimize_prompt: bool,
     pub last_theme_mtime: Option<std::time::SystemTime>,
+    pub editing_ramdump_idx: Option<usize>,
 }
 
 pub struct TetherUi {
@@ -51,6 +56,7 @@ pub struct TetherUi {
     pub window: gtk4::ApplicationWindow,
     pub main_box: gtk4::Box,
     pub flow_box: gtk4::Box,
+    pub hero_card: gtk4::Box,
     pub mini_hud_box: gtk4::Box,
     pub css_provider: gtk4::CssProvider,
 
@@ -58,6 +64,7 @@ pub struct TetherUi {
     pub status_badge: gtk4::Label,
     pub audio_btn: gtk4::Button,
     pub dopamine_btn: gtk4::Button,
+    pub shutdown_btn: gtk4::Button,
     pub editor_btn: gtk4::Button,
     pub pill_mode_btn: gtk4::Button,
 
@@ -93,7 +100,21 @@ pub struct TetherUi {
     // Context anchor widgets
     pub anchor_group: PreferencesGroup,
     pub anchor_row: ActionRow,
+    pub anchor_where_btn: gtk4::Button,
     pub anchor_resume_btn: gtk4::Button,
+
+    // "Where was I?" welcome card widgets
+    pub where_was_i_group: PreferencesGroup,
+    pub where_state_row: ActionRow,
+    pub where_git_row: ActionRow,
+    pub where_next_row: ActionRow,
+    pub where_start_btn: gtk4::Button,
+
+    // Time-blindness & Hard Stop widgets
+    pub hard_stop_row: ActionRow,
+    pub hard_stop_entry: gtk4::Entry,
+    pub hard_stop_label_entry: gtk4::Entry,
+    pub hard_stop_toggle_btn: gtk4::Button,
 
     // Momentum widgets
     pub momentum_tier_row: ActionRow,
@@ -107,8 +128,12 @@ pub struct TetherUi {
     pub ram_now_entry: EntryRow,
     pub ram_status_entry: EntryRow,
     pub ram_next_entry: EntryRow,
+    pub autofill_ram_btn: gtk4::Button,
+    pub save_ram_btn: gtk4::Button,
+    pub cancel_edit_ram_btn: gtk4::Button,
     pub last_dump_group: PreferencesGroup,
     pub last_dump_row: ActionRow,
+    pub ramdumps_list_box: gtk4::ListBox,
 
     // Impulses widgets
     pub impulse_entry: EntryRow,
@@ -174,6 +199,9 @@ impl TetherUi {
             speedbump,
             speedbump_active_prompt: false,
             dopamine,
+            time_anchor: crate::time_anchor::TimeAnchorState::new(),
+            where_was_i_dismissed: false,
+            shutdown_window_open: false,
             last_update: Instant::now(),
             last_anchor_check: Instant::now(),
             last_stats_check: Instant::now(),
@@ -183,6 +211,7 @@ impl TetherUi {
             suppress_pos_ticks: 0,
             asked_editor_minimize_prompt: false,
             last_theme_mtime: initial_theme_mtime,
+            editing_ramdump_idx: None,
         }));
 
         let window = gtk4::ApplicationWindow::builder()
@@ -237,6 +266,17 @@ impl TetherUi {
             .build();
         header_bar.pack_end(&pill_mode_btn);
 
+        // Right Header: Shutdown Ritual Button
+        let shutdown_btn = gtk4::Button::builder()
+            .icon_name("weather-clear-night-symbolic")
+            .tooltip_text(match initial_lang {
+                Language::Norwegian => "Dagsavslutning (Tøm hodet og avslutt arbeidsdagen)",
+                _ => "Shutdown Ritual (Park working memory for the day)",
+            })
+            .css_classes(["flat"])
+            .build();
+        header_bar.pack_end(&shutdown_btn);
+
         // Right Header: Editor Quick Action
         let editor_btn = gtk4::Button::builder()
             .icon_name("utilities-terminal-symbolic")
@@ -260,6 +300,67 @@ impl TetherUi {
         flow_box.set_margin_end(16);
         flow_box.set_hexpand(true);
         flow_box.set_vexpand(true);
+
+        // "Where was I?" Context Recovery Card (shown after absence >= 4h or manually)
+        let where_was_i_group = PreferencesGroup::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Hvor var jeg?",
+                _ => "Where was I?",
+            })
+            .description(match initial_lang {
+                Language::Norwegian => "Rask oversikt etter fravær",
+                _ => "Quick context recovery",
+            })
+            .visible(false)
+            .build();
+
+        let where_state_row = ActionRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Siste tilstand",
+                _ => "Last state",
+            })
+            .build();
+        where_state_row.add_prefix(&gtk4::Image::from_icon_name("document-save-symbolic"));
+        let where_dismiss_btn = gtk4::Button::builder()
+            .icon_name("window-close-symbolic")
+            .tooltip_text(match initial_lang {
+                Language::Norwegian => "Lukk oversikt",
+                _ => "Dismiss card",
+            })
+            .css_classes(["flat", "circular"])
+            .valign(gtk4::Align::Center)
+            .build();
+        where_state_row.add_suffix(&where_dismiss_btn);
+        where_was_i_group.add(&where_state_row);
+
+        let where_git_row = ActionRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Git og kodekontekst",
+                _ => "Git & code context",
+            })
+            .build();
+        where_git_row.add_prefix(&gtk4::Image::from_icon_name("utilities-terminal-symbolic"));
+        where_was_i_group.add(&where_git_row);
+
+        let where_next_row = ActionRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Foreslått første mikro-steg",
+                _ => "Suggested first micro-step",
+            })
+            .build();
+        where_next_row.add_prefix(&gtk4::Image::from_icon_name("weather-storm-symbolic"));
+        let where_start_btn = gtk4::Button::builder()
+            .label(match initial_lang {
+                Language::Norwegian => "Start 5m & åpne",
+                _ => "Start 5m & open",
+            })
+            .css_classes(["suggested-action", "pill"])
+            .valign(gtk4::Align::Center)
+            .build();
+        where_next_row.add_suffix(&where_start_btn);
+        where_was_i_group.add(&where_next_row);
+
+        flow_box.append(&where_was_i_group);
 
         // Hero Timer Card
         let hero_card = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
@@ -525,6 +626,78 @@ impl TetherUi {
         flow_sound_group.add(&flow_sound_row);
         flow_box.append(&flow_sound_group);
 
+        // Time-Blindness Anchor & Hard Stop Group
+        let time_anchor_group = PreferencesGroup::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Tidsanker & Hard Stop",
+                _ => "Time Anchor & Hard Stop",
+            })
+            .description(match initial_lang {
+                Language::Norwegian => "Sett et fast stopptidspunkt så du ikke glemmer avtaler under hyperfokus",
+                _ => "Set a firm stop time so you never miss appointments during hyperfocus",
+            })
+            .build();
+
+        let hard_stop_row = ActionRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Hard Stop-klokkeslett",
+                _ => "Hard Stop time",
+            })
+            .subtitle(match initial_lang {
+                Language::Norwegian => "Ingen Hard Stop satt (varsler 15m og 5m før)",
+                _ => "No Hard Stop set (alerts 15m and 5m before)",
+            })
+            .build();
+        hard_stop_row.add_prefix(&gtk4::Image::from_icon_name("alarm-symbolic"));
+
+        let hard_stop_controls = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        hard_stop_controls.set_valign(gtk4::Align::Center);
+
+        let hard_stop_entry = gtk4::Entry::builder()
+            .placeholder_text("14:00")
+            .text(&initial_settings.hard_stop_time)
+            .width_chars(6)
+            .max_length(5)
+            .valign(gtk4::Align::Center)
+            .build();
+        hard_stop_controls.append(&hard_stop_entry);
+
+        let hard_stop_label_entry = gtk4::Entry::builder()
+            .placeholder_text(match initial_lang {
+                Language::Norwegian => "Møte / Avtale",
+                _ => "Meeting / Event",
+            })
+            .text(&initial_settings.hard_stop_label)
+            .width_chars(14)
+            .valign(gtk4::Align::Center)
+            .build();
+        hard_stop_controls.append(&hard_stop_label_entry);
+
+        let hard_stop_toggle_btn = gtk4::Button::builder()
+            .label(if initial_settings.hard_stop_enabled {
+                match initial_lang {
+                    Language::Norwegian => "Avbryt",
+                    _ => "Clear",
+                }
+            } else {
+                match initial_lang {
+                    Language::Norwegian => "Aktiver",
+                    _ => "Set",
+                }
+            })
+            .css_classes(if initial_settings.hard_stop_enabled {
+                &["pill", "destructive-action"][..]
+            } else {
+                &["pill"][..]
+            })
+            .valign(gtk4::Align::Center)
+            .build();
+        hard_stop_controls.append(&hard_stop_toggle_btn);
+
+        hard_stop_row.add_suffix(&hard_stop_controls);
+        time_anchor_group.add(&hard_stop_row);
+        flow_box.append(&time_anchor_group);
+
         // Context Anchor Group
         let anchor_group = PreferencesGroup::builder()
             .title(match initial_lang {
@@ -541,6 +714,18 @@ impl TetherUi {
             .title("Ingen aktiv kontekst ennå")
             .subtitle("Åpne et prosjekt for å forankre flyten")
             .build();
+        let anchor_where_btn = gtk4::Button::builder()
+            .label(match initial_lang {
+                Language::Norwegian => "Hvor var jeg?",
+                _ => "Where was I?",
+            })
+            .tooltip_text(match initial_lang {
+                Language::Norwegian => "Vis sammendrag av siste økt, Git-status og neste steg",
+                _ => "Show summary of last session, Git status, and next step",
+            })
+            .css_classes(["pill"])
+            .valign(gtk4::Align::Center)
+            .build();
         let anchor_resume_btn = gtk4::Button::builder()
             .label(match initial_lang {
                 Language::Norwegian => "Gjenoppta",
@@ -550,6 +735,7 @@ impl TetherUi {
             .valign(gtk4::Align::Center)
             .build();
         anchor_resume_btn.set_visible(false);
+        anchor_row.add_suffix(&anchor_where_btn);
         anchor_row.add_suffix(&anchor_resume_btn);
         anchor_group.add(&anchor_row);
         flow_box.append(&anchor_group);
@@ -671,27 +857,69 @@ impl TetherUi {
             .build();
         ram_group.add(&ram_next_entry);
 
+        let ram_btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        ram_btn_row.set_halign(gtk4::Align::End);
+        ram_btn_row.set_margin_top(12);
+
+        let cancel_edit_ram_btn = gtk4::Button::builder()
+            .label(match initial_lang {
+                Language::Norwegian => "Avbryt redigering",
+                _ => "Cancel Edit",
+            })
+            .css_classes(["pill"])
+            .visible(false)
+            .build();
+        ram_btn_row.append(&cancel_edit_ram_btn);
+
+        let autofill_ram_btn = gtk4::Button::builder()
+            .label(match initial_lang {
+                Language::Norwegian => "✨ Fyll ut automatisk (Kontekst / AI)",
+                _ => "✨ Auto-fill (Context / AI)",
+            })
+            .tooltip_text(match initial_lang {
+                Language::Norwegian => "Analyserer aktivt dokument, vindu eller prosjekt",
+                _ => "Analyzes active document, window or project",
+            })
+            .css_classes(["pill"])
+            .build();
+        ram_btn_row.append(&autofill_ram_btn);
+
         let save_ram_btn = gtk4::Button::builder()
             .label(match initial_lang {
                 Language::Norwegian => "Lagre arbeidsminne",
                 _ => "Save Working Memory",
             })
             .css_classes(["pill", "suggested-action"])
-            .halign(gtk4::Align::End)
-            .margin_top(12)
             .build();
-        ram_group.add(&save_ram_btn);
+        ram_btn_row.append(&save_ram_btn);
+        ram_group.add(&ram_btn_row);
 
         ram_box.append(&ram_group);
 
         let last_dump_group = PreferencesGroup::builder()
-            .title("Siste lagrede tilstand")
+            .title(match initial_lang {
+                Language::Norwegian => "Lagrede RAM-dumps (Rediger / Slett)",
+                _ => "Saved RAM Dumps (Edit / Delete)",
+            })
             .build();
         let last_dump_row = ActionRow::builder()
-            .title("Ingen dump lagret ennå")
-            .subtitle("Fyll ut feltene ovenfor og trykk Lagre for å sikre arbeidsminnet")
+            .title(match initial_lang {
+                Language::Norwegian => "Ingen dump lagret ennå",
+                _ => "No dump saved yet",
+            })
+            .subtitle(match initial_lang {
+                Language::Norwegian => "Fyll ut feltene ovenfor og trykk Lagre for å sikre arbeidsminnet",
+                _ => "Fill in the fields above and click Save to secure working memory",
+            })
             .build();
         last_dump_group.add(&last_dump_row);
+
+        let ramdumps_list_box = gtk4::ListBox::builder()
+            .selection_mode(gtk4::SelectionMode::None)
+            .css_classes(["boxed-list"])
+            .margin_top(8)
+            .build();
+        last_dump_group.add(&ramdumps_list_box);
         ram_box.append(&last_dump_group);
 
         ram_scroll.set_child(Some(&ram_box));
@@ -881,6 +1109,108 @@ impl TetherUi {
 
         settings_page.add(&set_speedbump_group);
 
+        // Group: Time-Blindness Cues & AI Assist
+        let set_time_anchor_group = PreferencesGroup::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Tidsblindhets-ankring og AI-assistent",
+                _ => "Time-Blindness Cues & AI Assistant",
+            })
+            .description(match initial_lang {
+                Language::Norwegian => "Myke tidsankre under hyperfokus og smart utfylling av RAM-dump",
+                _ => "Gentle time cues during hyperfocus and smart RAM-dump auto-fill",
+            })
+            .build();
+
+        let time_cue_models = gtk4::StringList::new(&[
+            "Av",
+            "Hver halvtime (:00 og :30)",
+            "Hver hele time (:00)",
+        ]);
+        let time_cue_idx = match initial_settings.time_cue_interval_mins {
+            0 => 0,
+            60 => 2,
+            _ => 1,
+        };
+        let time_cue_combo = ComboRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Myke tidsankre under fokus",
+                _ => "Ambient time cues during focus",
+            })
+            .subtitle(match initial_lang {
+                Language::Norwegian => "Gir en subtil visuell puls så du merker at tiden går",
+                _ => "Shows a subtle visual pulse so you notice time passing",
+            })
+            .model(&time_cue_models)
+            .selected(time_cue_idx)
+            .build();
+        set_time_anchor_group.add(&time_cue_combo);
+
+        let time_cue_sound_switch = SwitchRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Akustisk vanndråpe-lyd ved tidsanker",
+                _ => "Soft acoustic water-droplet chime at time cue",
+            })
+            .active(initial_settings.time_cue_sound)
+            .build();
+        set_time_anchor_group.add(&time_cue_sound_switch);
+
+        let ai_mode_models = gtk4::StringList::new(&[
+            "Auto (Antigravity / Copilot / CLI / Ollama → Git)",
+            "Antigravity CLI (agy)",
+            "GitHub Copilot CLI (copilot)",
+            "Gemini CLI (gemini)",
+            "OpenAI Codex CLI (codex)",
+            "OpenCode CLI (opencode)",
+            "Claude CLI (claude)",
+            "Lokal Ollama (localhost:11434)",
+            "Kun Git- og kodeanalyse (100% offline)",
+        ]);
+        let ai_mode_idx = match initial_settings.ai_assist_mode {
+            storage::AiAssistMode::Auto | storage::AiAssistMode::Cli => 0,
+            storage::AiAssistMode::Antigravity => 1,
+            storage::AiAssistMode::Copilot => 2,
+            storage::AiAssistMode::Gemini => 3,
+            storage::AiAssistMode::Codex => 4,
+            storage::AiAssistMode::OpenCode => 5,
+            storage::AiAssistMode::Claude => 6,
+            storage::AiAssistMode::Ollama => 7,
+            storage::AiAssistMode::GitOnly => 8,
+        };
+        let detected_tools = crate::context_engine::detect_installed_ai_tools();
+        let ai_detected_sub = if detected_tools.is_empty() {
+            match initial_lang {
+                Language::Norwegian => "Funnet på maskinen: ingen AI-CLI (bruker Git-analyse)".to_string(),
+                _ => "Detected on machine: no AI CLI (using Git analysis)".to_string(),
+            }
+        } else {
+            match initial_lang {
+                Language::Norwegian => format!("Funnet på maskinen: {}", detected_tools.join(", ")),
+                _ => format!("Detected: {}", detected_tools.join(", ")),
+            }
+        };
+        let ai_mode_combo = ComboRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "AI / Git-assistent for RAM-dump",
+                _ => "AI / Git assistant for RAM-dump",
+            })
+            .subtitle(&ai_detected_sub)
+            .model(&ai_mode_models)
+            .selected(ai_mode_idx)
+            .build();
+        set_time_anchor_group.add(&ai_mode_combo);
+
+        let ollama_model_entry = EntryRow::builder()
+            .title(match initial_lang {
+                Language::Norwegian => "Lokal Ollama-modell (localhost:11434)",
+                _ => "Local Ollama model (localhost:11434)",
+            })
+            .text(&initial_settings.ollama_model)
+            .show_apply_button(true)
+            .build();
+        set_time_anchor_group.add(&ollama_model_entry);
+
+        settings_page.add(&set_time_anchor_group);
+
         // Group: Impulse Storage
         let set_storage_group = PreferencesGroup::builder()
             .title("Impuls-lagring")
@@ -938,10 +1268,10 @@ impl TetherUi {
         set_storage_group.add(&set_cleanup_combo);
         settings_page.add(&set_storage_group);
 
-        // Group: Editor / Utviklingsmiljø (IDE)
+        // Group: Arbeidsprogrammer og Kontekst-ankring
         let set_editor_group = PreferencesGroup::builder()
-            .title("Editor og Kodekontekst")
-            .description("Sømløs integrasjon med din favoritteditor eller IDE")
+            .title("Arbeidsprogrammer og Kontekst-ankring")
+            .description("Sømløs integrasjon med skriveprogrammer, notater, studieverktøy og kreative apper")
             .build();
 
         let available_editors = EditorType::available_choices();
@@ -953,7 +1283,7 @@ impl TetherUi {
             .unwrap_or(0) as u32;
 
         let editor_combo = ComboRow::builder()
-            .title("Foretrukket editor / IDE")
+            .title("Foretrukket arbeidsprogram")
             .model(&editor_models)
             .selected(selected_editor_idx)
             .build();
@@ -978,18 +1308,19 @@ impl TetherUi {
             .build();
         set_editor_group.add(&nvim_mgr_combo);
 
-        let (is_ext_installed, ext_sub) = crate::editor::check_nvim_plugin_status(initial_settings.nvim_plugin_manager);
         let ext_status_row = ActionRow::builder()
-            .title("Tether editor-utvidelse")
-            .subtitle(&ext_sub)
+            .title("Tether app-integrasjon")
             .build();
         let install_ext_btn = gtk4::Button::builder()
-            .label(if is_ext_installed { "Reinstaller" } else { "Installer utvidelse" })
             .valign(gtk4::Align::Center)
             .build();
-        if !is_ext_installed {
-            install_ext_btn.add_css_class("suggested-action");
-        }
+        Self::apply_ext_row_status(
+            &ext_status_row,
+            &install_ext_btn,
+            Some(&nvim_mgr_combo),
+            initial_settings.editor_type.resolve(),
+            initial_settings.nvim_plugin_manager,
+        );
         ext_status_row.add_suffix(&install_ext_btn);
         set_editor_group.add(&ext_status_row);
 
@@ -1192,11 +1523,13 @@ impl TetherUi {
             window: window.clone(),
             main_box,
             flow_box: flow_box.clone(),
+            hero_card,
             mini_hud_box,
             css_provider,
             status_badge,
             audio_btn,
             dopamine_btn,
+            shutdown_btn,
             editor_btn,
             pill_mode_btn,
             timer_label,
@@ -1224,7 +1557,17 @@ impl TetherUi {
             set_vol_scale: set_vol_scale.clone(),
             anchor_group,
             anchor_row,
+            anchor_where_btn,
             anchor_resume_btn,
+            where_was_i_group,
+            where_state_row,
+            where_git_row,
+            where_next_row,
+            where_start_btn,
+            hard_stop_row,
+            hard_stop_entry,
+            hard_stop_label_entry,
+            hard_stop_toggle_btn,
             momentum_tier_row,
             momentum_progress,
             stat_flow_val,
@@ -1234,8 +1577,12 @@ impl TetherUi {
             ram_now_entry,
             ram_status_entry,
             ram_next_entry,
+            autofill_ram_btn,
+            save_ram_btn,
+            cancel_edit_ram_btn,
             last_dump_group,
             last_dump_row,
+            ramdumps_list_box,
             impulse_entry,
             impulses_list_box,
             set_file_row,
@@ -1287,6 +1634,111 @@ impl TetherUi {
             let ui_clone = ui.clone();
             ui.dopamine_btn.connect_clicked(move |_| {
                 ui_clone.open_dopamine_menu();
+            });
+        }
+
+        // Event: Shutdown header button (Open Shutdown Ritual)
+        {
+            let ui_clone = ui.clone();
+            ui.shutdown_btn.connect_clicked(move |_| {
+                ui_clone.open_shutdown_ritual();
+            });
+        }
+
+        // Event: Where-was-I dismiss button
+        {
+            let ui_clone = ui.clone();
+            where_dismiss_btn.connect_clicked(move |_| {
+                ui_clone.state.borrow_mut().where_was_i_dismissed = true;
+                ui_clone.where_was_i_group.set_visible(false);
+            });
+        }
+
+        // Event: Where-was-I Start 5m & open editor
+        {
+            let ui_clone = ui.clone();
+            ui.where_start_btn.connect_clicked(move |_| {
+                ui_clone.start_micro();
+                {
+                    let mut st = ui_clone.state.borrow_mut();
+                    st.where_was_i_dismissed = true;
+                    if let Some(anchor) = &st.anchor {
+                        st.settings.editor_type.resume(anchor, &st.settings.terminal_command);
+                    } else {
+                        st.settings.editor_type.open_or_focus(&st.settings.terminal_command);
+                    }
+                }
+                ui_clone.where_was_i_group.set_visible(false);
+            });
+        }
+
+        // Event: Anchor "Where was I?" button
+        {
+            let ui_clone = ui.clone();
+            ui.anchor_where_btn.connect_clicked(move |_| {
+                ui_clone.state.borrow_mut().where_was_i_dismissed = false;
+                ui_clone.refresh_where_was_i(true);
+            });
+        }
+
+        // Event: Hard Stop toggle button
+        {
+            let ui_clone = ui.clone();
+            ui.hard_stop_toggle_btn.connect_clicked(move |_| {
+                ui_clone.toggle_hard_stop();
+            });
+        }
+
+        // Event: Time cue interval & sound & AI mode settings
+        {
+            let state_clone = state.clone();
+            time_cue_combo.connect_selected_notify(move |combo| {
+                let interval = match combo.selected() {
+                    0 => 0,
+                    2 => 60,
+                    _ => 30,
+                };
+                let mut st = state_clone.borrow_mut();
+                st.settings.time_cue_interval_mins = interval;
+                let _ = storage::save_settings(&st.settings);
+            });
+        }
+        {
+            let state_clone = state.clone();
+            time_cue_sound_switch.connect_active_notify(move |sw| {
+                let mut st = state_clone.borrow_mut();
+                st.settings.time_cue_sound = sw.is_active();
+                let _ = storage::save_settings(&st.settings);
+            });
+        }
+        {
+            let state_clone = state.clone();
+            ai_mode_combo.connect_selected_notify(move |combo| {
+                let mode = match combo.selected() {
+                    1 => storage::AiAssistMode::Antigravity,
+                    2 => storage::AiAssistMode::Copilot,
+                    3 => storage::AiAssistMode::Gemini,
+                    4 => storage::AiAssistMode::Codex,
+                    5 => storage::AiAssistMode::OpenCode,
+                    6 => storage::AiAssistMode::Claude,
+                    7 => storage::AiAssistMode::Ollama,
+                    8 => storage::AiAssistMode::GitOnly,
+                    _ => storage::AiAssistMode::Auto,
+                };
+                let mut st = state_clone.borrow_mut();
+                st.settings.ai_assist_mode = mode;
+                let _ = storage::save_settings(&st.settings);
+            });
+        }
+        {
+            let state_clone = state.clone();
+            ollama_model_entry.connect_apply(move |entry| {
+                let mut st = state_clone.borrow_mut();
+                let txt = entry.text().trim().to_string();
+                if !txt.is_empty() {
+                    st.settings.ollama_model = txt;
+                    let _ = storage::save_settings(&st.settings);
+                }
             });
         }
 
@@ -1417,11 +1869,27 @@ impl TetherUi {
             });
         }
 
-        // Event: Save RAM-dump
+        // Event: Auto-fill RAM-dump from Context / AI
         {
             let ui_clone = ui.clone();
-            save_ram_btn.connect_clicked(move |_| {
+            ui.autofill_ram_btn.connect_clicked(move |_| {
+                ui_clone.autofill_ramdump();
+            });
+        }
+
+        // Event: Save or update RAM-dump
+        {
+            let ui_clone = ui.clone();
+            ui.save_ram_btn.connect_clicked(move |_| {
                 ui_clone.save_ramdump();
+            });
+        }
+
+        // Event: Cancel RAM-dump editing
+        {
+            let ui_clone = ui.clone();
+            ui.cancel_edit_ram_btn.connect_clicked(move |_| {
+                ui_clone.cancel_edit_ramdump();
             });
         }
 
@@ -1656,32 +2124,13 @@ impl TetherUi {
                     let _ = storage::save_settings(&st.settings);
 
                     let resolved = editor.resolve();
-                    if resolved == EditorType::Neovim || resolved == EditorType::Neovide {
-                        nvim_mgr_combo_clone.set_visible(true);
-                        let (installed, sub) = crate::editor::check_nvim_plugin_status(st.settings.nvim_plugin_manager);
-                        ext_status_row_clone.set_subtitle(&sub);
-                        if installed {
-                            install_ext_btn_clone.set_label("Reinstaller");
-                            install_ext_btn_clone.remove_css_class("suggested-action");
-                        } else {
-                            install_ext_btn_clone.set_label("Installer utvidelse");
-                            install_ext_btn_clone.add_css_class("suggested-action");
-                        }
-                    } else if resolved == EditorType::None {
-                        nvim_mgr_combo_clone.set_visible(false);
-                        ext_status_row_clone.set_subtitle("Ingen editor valgt");
-                    } else {
-                        nvim_mgr_combo_clone.set_visible(false);
-                        let (installed, sub) = crate::editor::check_vscode_extension_status(resolved);
-                        ext_status_row_clone.set_subtitle(&sub);
-                        if installed {
-                            install_ext_btn_clone.set_label("Reinstaller");
-                            install_ext_btn_clone.remove_css_class("suggested-action");
-                        } else {
-                            install_ext_btn_clone.set_label("Installer utvidelse");
-                            install_ext_btn_clone.add_css_class("suggested-action");
-                        }
-                    }
+                    Self::apply_ext_row_status(
+                        &ext_status_row_clone,
+                        &install_ext_btn_clone,
+                        Some(&nvim_mgr_combo_clone),
+                        resolved,
+                        st.settings.nvim_plugin_manager,
+                    );
                 }
             });
         }
@@ -1696,20 +2145,19 @@ impl TetherUi {
                     2 => crate::editor::NvimPluginManager::VimPlug,
                     _ => crate::editor::NvimPluginManager::Manual,
                 };
-                {
+                let resolved = {
                     let mut st = state_clone.borrow_mut();
                     st.settings.nvim_plugin_manager = mgr;
                     let _ = storage::save_settings(&st.settings);
-                }
-                let (installed, sub) = crate::editor::check_nvim_plugin_status(mgr);
-                ext_status_row_clone.set_subtitle(&sub);
-                if installed {
-                    install_ext_btn_clone.set_label("Reinstaller");
-                    install_ext_btn_clone.remove_css_class("suggested-action");
-                } else {
-                    install_ext_btn_clone.set_label("Installer utvidelse");
-                    install_ext_btn_clone.add_css_class("suggested-action");
-                }
+                    st.settings.editor_type.resolve()
+                };
+                Self::apply_ext_row_status(
+                    &ext_status_row_clone,
+                    &install_ext_btn_clone,
+                    None,
+                    resolved,
+                    mgr,
+                );
             });
         }
         {
@@ -1727,8 +2175,14 @@ impl TetherUi {
                     EditorType::Neovim | EditorType::Neovide => {
                         crate::editor::install_nvim_plugin(mgr)
                     }
-                    _ => {
+                    EditorType::Obsidian => {
+                        crate::editor::install_obsidian_plugin()
+                    }
+                    EditorType::VSCode | EditorType::VSCodium | EditorType::Cursor => {
                         crate::editor::install_vscode_extension(editor)
+                    }
+                    _ => {
+                        Ok("Automatisk vindu- og filsporing er allerede aktivert for dette programmet.".to_string())
                     }
                 };
 
@@ -1741,12 +2195,13 @@ impl TetherUi {
                         alert.add_response("ok", "OK");
                         alert.choose(Some(&window_clone), None::<&gtk4::gio::Cancellable>, |_| {});
 
-                        let (installed, sub) = crate::editor::check_nvim_plugin_status(mgr);
-                        ext_status_row_clone.set_subtitle(&sub);
-                        if installed {
-                            install_ext_btn_clone.set_label("Reinstaller");
-                            install_ext_btn_clone.remove_css_class("suggested-action");
-                        }
+                        Self::apply_ext_row_status(
+                            &ext_status_row_clone,
+                            &install_ext_btn_clone,
+                            None,
+                            editor,
+                            mgr,
+                        );
                     }
                     Err(err) => {
                         let alert = libadwaita::AlertDialog::builder()
@@ -1837,8 +2292,11 @@ impl TetherUi {
         }
         ui.window.add_controller(key_controller);
 
-        // Populate initial impulses
+        // Populate initial impulses & context recovery card
         ui.refresh_impulses_list();
+        ui.refresh_where_was_i(false);
+        ui.refresh_last_ramdump_row();
+        ui.refresh_ramdumps_list();
 
         // 500ms Timer loop for UI updates, IPC sync, and live theme reloading
         {
@@ -2513,6 +2971,13 @@ impl TetherUi {
     }
 
     pub fn update_ui_tick(&self) {
+        if storage::take_shutdown_request() {
+            self.set_mini_hud_mode(false);
+            self.window.set_visible(true);
+            self.window.present();
+            self.open_shutdown_ritual();
+        }
+
         let now = Instant::now();
 
         // Check for state updates
@@ -2524,6 +2989,94 @@ impl TetherUi {
 
             let old = st.previous_state;
             let cur = st.flow.state;
+
+            // Time-Blindness Ambient Cues & Hard Stop Warnings
+            let is_focusing = cur == FlowState::Focus || cur == FlowState::MicroStart;
+            let st_ref = &mut *st;
+            let time_events = st_ref.time_anchor.check_tick(
+                is_focusing,
+                st_ref.settings.time_cue_interval_mins,
+                st_ref.settings.hard_stop_enabled,
+                &st_ref.settings.hard_stop_time,
+                &st_ref.settings.hard_stop_label,
+            );
+            let is_no = st.settings.language.resolve() == Language::Norwegian;
+            let notify_on = st.settings.notifications_enabled;
+            let cue_sound_on = st.settings.time_cue_sound;
+            for ev in time_events {
+                match ev {
+                    crate::time_anchor::TimeAnchorEvent::AmbientTimeCue { clock_time } => {
+                        if cue_sound_on {
+                            st.audio.play_time_cue();
+                        }
+                        let _ = clock_time;
+                    }
+                    crate::time_anchor::TimeAnchorEvent::HardStopWarning15m { time_str, label } => {
+                        if cue_sound_on {
+                            st.audio.play_time_cue();
+                        }
+                        if notify_on {
+                            let lbl = if label.is_empty() {
+                                if is_no { "Hard Stop".to_string() } else { "Hard Stop".to_string() }
+                            } else {
+                                label
+                            };
+                            let (title, body) = if is_no {
+                                (
+                                    "15 min til Hard Stop",
+                                    format!("15 min til {} (kl. {}) – på tide å runde av og ta en RAM-dump.", lbl, time_str),
+                                )
+                            } else {
+                                (
+                                    "15 min to Hard Stop",
+                                    format!("15 min until {} ({}) – time to wrap up and save a RAM-dump.", lbl, time_str),
+                                )
+                            };
+                            crate::flowmodoro::notify(title, &body);
+                        }
+                    }
+                    crate::time_anchor::TimeAnchorEvent::HardStopWarning5m { time_str, label } => {
+                        if cue_sound_on {
+                            st.audio.play_focus_chime();
+                        }
+                        if notify_on {
+                            let lbl = if label.is_empty() { "Hard Stop".to_string() } else { label };
+                            let (title, body) = if is_no {
+                                (
+                                    "5 min til Hard Stop!",
+                                    format!("5 min til {} (kl. {})! Ta en RAM-dump nå.", lbl, time_str),
+                                )
+                            } else {
+                                (
+                                    "5 min to Hard Stop!",
+                                    format!("5 min until {} ({})! Save a RAM-dump now.", lbl, time_str),
+                                )
+                            };
+                            crate::flowmodoro::notify(title, &body);
+                        }
+                    }
+                    crate::time_anchor::TimeAnchorEvent::HardStopReached { time_str, label } => {
+                        if cue_sound_on {
+                            st.audio.play_break_bong();
+                        }
+                        if notify_on {
+                            let lbl = if label.is_empty() { "Hard Stop".to_string() } else { label };
+                            let (title, body) = if is_no {
+                                (
+                                    "Hard Stop nådd!",
+                                    format!("Klokken er {} ({}) – på tide å avslutte!", time_str, lbl),
+                                )
+                            } else {
+                                (
+                                    "Hard Stop Reached!",
+                                    format!("It is {} ({}) – time to stop!", time_str, lbl),
+                                )
+                            };
+                            crate::flowmodoro::notify(title, &body);
+                        }
+                    }
+                }
+            }
 
             // Kontinuerlig opptjening av dopaminpoeng under aktiv fokus (1p per 5 min)
             if cur == FlowState::Focus {
@@ -2575,8 +3128,9 @@ impl TetherUi {
                 }
             }
 
-            // Check anchor periodically (every 1s)
+            // Sync universal window/file context & check anchor periodically (every 1s)
             if now.duration_since(st.last_anchor_check) >= Duration::from_secs(1) {
+                crate::editor::sync_universal_context_anchor();
                 st.anchor = storage::load_context_anchor();
                 st.last_anchor_check = now;
             }
@@ -2856,13 +3410,23 @@ impl TetherUi {
 
         // Context Anchor update
         if let Some(anchor) = &st.anchor {
-            self.anchor_row.set_title(&format!("{} [{}]", anchor.project_name, anchor.branch));
+            let title_raw = if anchor.branch.trim().is_empty() {
+                anchor.project_name.clone()
+            } else {
+                format!("{} [{}]", anchor.project_name, anchor.branch)
+            };
+            self.anchor_row.set_title(&glib::markup_escape_text(&title_raw));
             let note = if anchor.last_note.is_empty() {
                 String::new()
             } else {
                 format!("  •  \"{}\"", anchor.last_note)
             };
-            self.anchor_row.set_subtitle(&format!("{}:{}{}", anchor.relative_path, anchor.line, note));
+            let loc = if anchor.line > 1 {
+                format!("{}:{}", anchor.relative_path, anchor.line)
+            } else {
+                anchor.relative_path.clone()
+            };
+            self.anchor_row.set_subtitle(&glib::markup_escape_text(&format!("{}{}", loc, note)));
             self.anchor_resume_btn.set_label(&editor.resume_button_label(lang));
             self.anchor_resume_btn.set_visible(true);
         } else {
@@ -2877,8 +3441,8 @@ impl TetherUi {
                 });
             } else {
                 self.anchor_row.set_subtitle(&match lang {
-                    Language::Norwegian => format!("Åpne en kodefil i {} for å forankre flyten", editor.display_name()),
-                    _ => format!("Open a code file in {} to anchor flow", editor.display_name()),
+                    Language::Norwegian => format!("Åpne et dokument, notat eller prosjekt i {} for å forankre flyten", editor.display_name()),
+                    _ => format!("Open a document, note, or project in {} to anchor flow", editor.display_name()),
                 });
             }
             self.anchor_resume_btn.set_visible(false);
@@ -2919,6 +3483,16 @@ impl TetherUi {
         if let Some(tray) = &self.tray {
             tray.update_status(&timer_text, tag_text);
         }
+
+        // Visual Time-Blindness Pulse & Hard Stop countdown
+        if st.time_anchor.pulse_ticks_remaining > 0 {
+            self.hero_card.add_css_class("time-cue-pulse");
+            self.mini_hud_box.add_css_class("time-cue-pulse");
+        } else {
+            self.hero_card.remove_css_class("time-cue-pulse");
+            self.mini_hud_box.remove_css_class("time-cue-pulse");
+        }
+        self.update_hard_stop_ui(&st);
 
         // Live Omarchy Theme check
         let cur_mtime = crate::theme::get_colors_mtime();
@@ -3009,17 +3583,784 @@ impl TetherUi {
         }
     }
 
-    pub fn save_ramdump(&self) {
-        let mut st = self.state.borrow_mut();
-        st.ramdump.now = self.ram_now_entry.text().to_string();
-        st.ramdump.status = self.ram_status_entry.text().to_string();
-        st.ramdump.next_step = self.ram_next_entry.text().to_string();
-        let _ = st.ramdump.save();
-
-        if let Some((time, now, status, next)) = &st.ramdump.last_dump {
-            self.last_dump_row.set_title(&format!("Dump kl. {}", time));
-            self.last_dump_row.set_subtitle(&format!("NÅ: {} | STATUS: {} | NESTE: {}", now, status, next));
+    pub fn apply_last_ramdump_row(
+        row: &ActionRow,
+        last_dump: Option<&(String, String, String, String)>,
+        is_no: bool,
+    ) {
+        if let Some((time, now, status, next)) = last_dump {
+            row.set_title(&glib::markup_escape_text(&format!("Dump kl. {}", time)));
+            row.set_subtitle(&glib::markup_escape_text(&format!(
+                "NÅ: {} | STATUS: {} | NESTE: {}",
+                now, status, next
+            )));
+        } else {
+            row.set_title(if is_no { "Ingen dump lagret ennå" } else { "No dump saved yet" });
+            row.set_subtitle(if is_no {
+                "Fyll ut feltene ovenfor og trykk Lagre for å sikre arbeidsminnet"
+            } else {
+                "Fill in the fields above and click Save to secure working memory"
+            });
         }
+    }
+
+    pub fn save_ramdump(&self) {
+        let now_val = self.ram_now_entry.text().to_string();
+        let status_val = self.ram_status_entry.text().to_string();
+        let next_val = self.ram_next_entry.text().to_string();
+        if now_val.trim().is_empty() && status_val.trim().is_empty() && next_val.trim().is_empty() {
+            return;
+        }
+
+        let is_no = {
+            let mut st = self.state.borrow_mut();
+            let is_no = st.settings.language.resolve() == Language::Norwegian;
+            if let Some(idx) = st.editing_ramdump_idx.take() {
+                let _ = storage::update_ramdump_at(idx, &now_val, &status_val, &next_val);
+                st.ramdump.last_dump = storage::load_last_ramdump();
+            } else {
+                st.ramdump.now = now_val;
+                st.ramdump.status = status_val;
+                st.ramdump.next_step = next_val;
+                let _ = st.ramdump.save();
+            }
+            is_no
+        };
+
+        self.ram_now_entry.set_text("");
+        self.ram_status_entry.set_text("");
+        self.ram_next_entry.set_text("");
+        self.save_ram_btn.set_label(if is_no { "Lagre arbeidsminne" } else { "Save Working Memory" });
+        self.cancel_edit_ram_btn.set_visible(false);
+
+        self.refresh_last_ramdump_row();
+        self.refresh_ramdumps_list();
+    }
+
+    pub fn cancel_edit_ramdump(&self) {
+        let is_no = {
+            let mut st = self.state.borrow_mut();
+            st.editing_ramdump_idx = None;
+            st.settings.language.resolve() == Language::Norwegian
+        };
+        self.ram_now_entry.set_text("");
+        self.ram_status_entry.set_text("");
+        self.ram_next_entry.set_text("");
+        self.save_ram_btn.set_label(if is_no { "Lagre arbeidsminne" } else { "Save Working Memory" });
+        self.cancel_edit_ram_btn.set_visible(false);
+    }
+
+    pub fn refresh_last_ramdump_row(&self) {
+        let st = self.state.borrow();
+        let is_no = st.settings.language.resolve() == Language::Norwegian;
+        Self::apply_last_ramdump_row(&self.last_dump_row, st.ramdump.last_dump.as_ref(), is_no);
+    }
+
+    pub fn refresh_ramdumps_list(&self) {
+        Self::populate_ramdumps_box(
+            &self.ramdumps_list_box,
+            &self.state,
+            &self.ram_now_entry,
+            &self.ram_status_entry,
+            &self.ram_next_entry,
+            &self.save_ram_btn,
+            &self.cancel_edit_ram_btn,
+            &self.last_dump_row,
+        );
+    }
+
+    pub fn populate_ramdumps_box(
+        list_box: &gtk4::ListBox,
+        state: &Rc<RefCell<AppState>>,
+        now_entry: &EntryRow,
+        status_entry: &EntryRow,
+        next_entry: &EntryRow,
+        save_btn: &gtk4::Button,
+        cancel_btn: &gtk4::Button,
+        last_dump_row: &ActionRow,
+    ) {
+        let is_no = state.borrow().settings.language.resolve() == Language::Norwegian;
+        let items = storage::load_all_ramdumps();
+
+        while let Some(child) = list_box.first_child() {
+            list_box.remove(&child);
+        }
+
+        if items.is_empty() {
+            list_box.set_visible(false);
+            return;
+        }
+        list_box.set_visible(true);
+
+        for (original_idx, item) in items.iter().enumerate().rev().take(20) {
+            let title_text = format!("{}  —  {}", item.timestamp, item.now);
+            let sub_text = format!("Status: {}  •  Neste: {}", item.status, item.next_step);
+            let row = ActionRow::builder()
+                .title(glib::markup_escape_text(&title_text))
+                .subtitle(glib::markup_escape_text(&sub_text))
+                .build();
+
+            let edit_btn = gtk4::Button::builder()
+                .icon_name("document-edit-symbolic")
+                .tooltip_text(if is_no { "Rediger RAM-dump" } else { "Edit RAM dump" })
+                .css_classes(["flat"])
+                .valign(gtk4::Align::Center)
+                .build();
+
+            let delete_btn = gtk4::Button::builder()
+                .icon_name("user-trash-symbolic")
+                .tooltip_text(if is_no { "Slett RAM-dump" } else { "Delete RAM dump" })
+                .css_classes(["flat", "error"])
+                .valign(gtk4::Align::Center)
+                .build();
+
+            {
+                let st_edit = state.clone();
+                let now_e = now_entry.clone();
+                let status_e = status_entry.clone();
+                let next_e = next_entry.clone();
+                let save_b = save_btn.clone();
+                let cancel_b = cancel_btn.clone();
+                let item_now = item.now.clone();
+                let item_status = item.status.clone();
+                let item_next = item.next_step.clone();
+
+                edit_btn.connect_clicked(move |_| {
+                    let is_no_inner = {
+                        let mut st = st_edit.borrow_mut();
+                        st.editing_ramdump_idx = Some(original_idx);
+                        st.settings.language.resolve() == Language::Norwegian
+                    };
+                    now_e.set_text(&item_now);
+                    status_e.set_text(&item_status);
+                    next_e.set_text(&item_next);
+                    save_b.set_label(if is_no_inner { "Oppdater RAM-dump" } else { "Update RAM Dump" });
+                    cancel_b.set_visible(true);
+                    let _ = now_e.grab_focus();
+                });
+            }
+
+            {
+                let st_del = state.clone();
+                let box_ref = list_box.clone();
+                let now_e = now_entry.clone();
+                let status_e = status_entry.clone();
+                let next_e = next_entry.clone();
+                let save_b = save_btn.clone();
+                let cancel_b = cancel_btn.clone();
+                let last_row_ref = last_dump_row.clone();
+
+                delete_btn.connect_clicked(move |_| {
+                    let _ = storage::delete_ramdump_at(original_idx);
+                    let (last_opt, cleared_edit, is_no_inner) = {
+                        let mut st = st_del.borrow_mut();
+                        st.ramdump.last_dump = storage::load_last_ramdump();
+                        let mut cleared = false;
+                        if let Some(cur) = st.editing_ramdump_idx {
+                            if cur == original_idx {
+                                st.editing_ramdump_idx = None;
+                                cleared = true;
+                            } else if cur > original_idx {
+                                st.editing_ramdump_idx = Some(cur - 1);
+                            }
+                        }
+                        let is_no_inner = st.settings.language.resolve() == Language::Norwegian;
+                        (st.ramdump.last_dump.clone(), cleared, is_no_inner)
+                    };
+
+                    if cleared_edit {
+                        now_e.set_text("");
+                        status_e.set_text("");
+                        next_e.set_text("");
+                        save_b.set_label(if is_no_inner { "Lagre arbeidsminne" } else { "Save Working Memory" });
+                        cancel_b.set_visible(false);
+                    }
+
+                    Self::apply_last_ramdump_row(&last_row_ref, last_opt.as_ref(), is_no_inner);
+                    Self::populate_ramdumps_box(
+                        &box_ref,
+                        &st_del,
+                        &now_e,
+                        &status_e,
+                        &next_e,
+                        &save_b,
+                        &cancel_b,
+                        &last_row_ref,
+                    );
+                });
+            }
+
+            row.add_suffix(&edit_btn);
+            row.add_suffix(&delete_btn);
+            list_box.append(&row);
+        }
+    }
+
+    /// Runs RAM-dump context/AI suggestion on a background worker thread so GTK never freezes.
+    fn spawn_ramdump_suggestion<F>(
+        btn: &gtk4::Button,
+        loading_label: &'static str,
+        anchor_opt: Option<storage::ContextAnchor>,
+        settings: storage::TetherSettings,
+        on_done: F,
+    ) where
+        F: FnOnce(crate::context_engine::RamDumpSuggestion) + 'static,
+    {
+        let prev_label = btn.label().unwrap_or_default().to_string();
+        btn.set_sensitive(false);
+        btn.set_label(loading_label);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let suggestion = crate::context_engine::suggest_ramdump_fields(anchor_opt.as_ref(), &settings);
+            let _ = tx.send(suggestion);
+        });
+
+        let btn_weak = btn.downgrade();
+        let mut on_done_opt = Some(on_done);
+        glib::timeout_add_local(Duration::from_millis(80), move || {
+            match rx.try_recv() {
+                Ok(suggestion) => {
+                    if let Some(b) = btn_weak.upgrade() {
+                        b.set_sensitive(true);
+                        b.set_label(&prev_label);
+                    }
+                    if let Some(cb) = on_done_opt.take() {
+                        cb(suggestion);
+                    }
+                    glib::ControlFlow::Break
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    if let Some(b) = btn_weak.upgrade() {
+                        b.set_sensitive(true);
+                        b.set_label(&prev_label);
+                    }
+                    glib::ControlFlow::Break
+                }
+            }
+        });
+    }
+
+    pub fn autofill_ramdump(&self) {
+        let (anchor_opt, settings) = {
+            let st = self.state.borrow();
+            (st.anchor.clone(), st.settings.clone())
+        };
+        let is_no = settings.language.resolve() == Language::Norwegian;
+        let now_e = self.ram_now_entry.clone();
+        let status_e = self.ram_status_entry.clone();
+        let next_e = self.ram_next_entry.clone();
+        let last_row = self.last_dump_row.clone();
+
+        Self::spawn_ramdump_suggestion(
+            &self.autofill_ram_btn,
+            if is_no { "⏳ Analyserer kontekst..." } else { "⏳ Analyzing context..." },
+            anchor_opt,
+            settings,
+            move |suggestion| {
+                now_e.set_text(&suggestion.now);
+                status_e.set_text(&suggestion.status);
+                next_e.set_text(&suggestion.next_step);
+                last_row.set_subtitle(&glib::markup_escape_text(&if is_no {
+                    format!("Forslag hentet fra {} – se over og trykk Lagre", suggestion.source_label)
+                } else {
+                    format!("Drafted from {} – review and click Save", suggestion.source_label)
+                }));
+            },
+        );
+    }
+
+    pub fn refresh_where_was_i(&self, force_show: bool) {
+        let (settings, dismissed) = {
+            let st = self.state.borrow();
+            (st.settings.clone(), st.where_was_i_dismissed)
+        };
+        if dismissed && !force_show {
+            self.where_was_i_group.set_visible(false);
+            return;
+        }
+        if let Some(card) = crate::context_engine::build_where_was_i(&settings) {
+            if !force_show && !card.is_after_long_absence {
+                self.where_was_i_group.set_visible(false);
+                return;
+            }
+            let is_no = settings.language.resolve() == Language::Norwegian;
+            self.where_was_i_group.set_title(&if is_no {
+                format!("Hvor var jeg? ({})", card.absence_text)
+            } else {
+                format!("Where was I? ({})", card.absence_text)
+            });
+            self.where_was_i_group.set_description(Some(&card.headline));
+
+            self.where_state_row.set_title(&glib::markup_escape_text(if card.bullet_last_state.is_empty() {
+                if is_no { "Ingen tidligere RAM-dump" } else { "No previous RAM-dump" }
+            } else {
+                &card.bullet_last_state
+            }));
+            self.where_state_row.set_subtitle(&glib::markup_escape_text(&card.bullet_impulses));
+            self.where_git_row.set_title(&glib::markup_escape_text(&card.bullet_git));
+            self.where_next_row.set_title(&glib::markup_escape_text(&card.suggested_first_step));
+            self.where_was_i_group.set_visible(true);
+        } else {
+            self.where_was_i_group.set_visible(false);
+        }
+    }
+
+    pub fn update_hard_stop_ui(&self, st: &AppState) {
+        let is_no = st.settings.language.resolve() == Language::Norwegian;
+        if st.settings.hard_stop_enabled {
+            let now = chrono::Local::now();
+            if let Some(secs_left) = crate::time_anchor::seconds_until_target(
+                now.hour(),
+                now.minute(),
+                now.second(),
+                &st.settings.hard_stop_time,
+            ) {
+                let countdown = crate::time_anchor::format_hard_stop_countdown(secs_left, is_no);
+                let label = st.settings.hard_stop_label.trim();
+                let desc = if label.is_empty() {
+                    if is_no {
+                        format!("Aktivt stopp kl. {} ({})", st.settings.hard_stop_time, countdown)
+                    } else {
+                        format!("Active stop at {} ({})", st.settings.hard_stop_time, countdown)
+                    }
+                } else if is_no {
+                    format!("kl. {} ({}) — {}", st.settings.hard_stop_time, label, countdown)
+                } else {
+                    format!("at {} ({}) — {}", st.settings.hard_stop_time, label, countdown)
+                };
+                self.hard_stop_row.set_subtitle(&desc);
+            }
+            self.hard_stop_toggle_btn.set_label(if is_no { "Avbryt" } else { "Clear" });
+            self.hard_stop_toggle_btn.set_css_classes(&["pill", "destructive-action"]);
+        } else {
+            self.hard_stop_row.set_subtitle(if is_no {
+                "Ingen Hard Stop satt (varsler 15m og 5m før)"
+            } else {
+                "No Hard Stop set (alerts 15m and 5m before)"
+            });
+            self.hard_stop_toggle_btn.set_label(if is_no { "Aktiver" } else { "Set" });
+            self.hard_stop_toggle_btn.set_css_classes(&["pill"]);
+        }
+    }
+
+    pub fn toggle_hard_stop(&self) {
+        let raw_time = self.hard_stop_entry.text().trim().to_string();
+        let raw_label = self.hard_stop_label_entry.text().trim().to_string();
+        let mut st = self.state.borrow_mut();
+        let is_no = st.settings.language.resolve() == Language::Norwegian;
+
+        let should_clear = st.settings.hard_stop_enabled
+            && (raw_time.is_empty() || raw_time == st.settings.hard_stop_time);
+
+        if should_clear {
+            st.settings.hard_stop_enabled = false;
+            st.time_anchor.warned_15m_key = None;
+            st.time_anchor.warned_5m_key = None;
+            st.time_anchor.warned_0m_key = None;
+            let _ = storage::save_settings(&st.settings);
+            self.update_hard_stop_ui(&st);
+            return;
+        }
+
+        if let Some((h, m)) = crate::time_anchor::parse_hh_mm(&raw_time) {
+            let normalized = format!("{:02}:{:02}", h, m);
+            self.hard_stop_entry.set_text(&normalized);
+            st.settings.hard_stop_time = normalized;
+            st.settings.hard_stop_label = raw_label;
+            st.settings.hard_stop_enabled = true;
+            st.time_anchor.warned_15m_key = None;
+            st.time_anchor.warned_5m_key = None;
+            st.time_anchor.warned_0m_key = None;
+            let _ = storage::save_settings(&st.settings);
+            self.update_hard_stop_ui(&st);
+        } else {
+            self.hard_stop_row.set_subtitle(if is_no {
+                "Ugyldig klokkeslett – bruk formatet TT:MM (f.eks. 14:30)"
+            } else {
+                "Invalid time – use HH:MM format (e.g. 14:30)"
+            });
+        }
+    }
+
+    pub fn open_shutdown_ritual(&self) {
+        let (is_no, anchor_opt, settings, already_open) = {
+            let mut st = self.state.borrow_mut();
+            let open = st.shutdown_window_open;
+            if !open {
+                st.shutdown_window_open = true;
+            }
+            (
+                st.settings.language.resolve() == Language::Norwegian,
+                st.anchor.clone(),
+                st.settings.clone(),
+                open,
+            )
+        };
+        if already_open {
+            return;
+        }
+
+        let dialog = gtk4::Window::builder()
+            .title(if is_no { "Dagsavslutning" } else { "Shutdown Ritual" })
+            .default_width(560)
+            .default_height(640)
+            .modal(false)
+            .transient_for(&self.window)
+            .build();
+
+        {
+            let state_close = self.state.clone();
+            dialog.connect_close_request(move |_| {
+                state_close.borrow_mut().shutdown_window_open = false;
+                glib::Propagation::Proceed
+            });
+        }
+
+        let toolbar_view = ToolbarView::new();
+        let header_bar = HeaderBar::new();
+        let title_widget = WindowTitle::new(
+            if is_no { "Dagsavslutning" } else { "Shutdown Ritual" },
+            if is_no { "Tøm hodet og parker arbeidsminnet" } else { "Clear working memory for the day" },
+        );
+        header_bar.set_title_widget(Some(&title_widget));
+        toolbar_view.add_top_bar(&header_bar);
+
+        let scrolled = gtk4::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk4::PolicyType::Never)
+            .vexpand(true)
+            .hexpand(true)
+            .build();
+
+        let clamp = Clamp::builder()
+            .maximum_size(520)
+            .tightening_threshold(460)
+            .build();
+
+        let content_box = Rc::new(gtk4::Box::new(gtk4::Orientation::Vertical, 16));
+        content_box.set_margin_top(16);
+        content_box.set_margin_bottom(24);
+        content_box.set_margin_start(16);
+        content_box.set_margin_end(16);
+
+        // Step 1: Impulse Triage
+        let imp_group = PreferencesGroup::builder()
+            .title(if is_no { "1. Tøm dagens impulser" } else { "1. Clear today's impulses" })
+            .description(if is_no {
+                "Huk av ferdige punkter, slett uviktige, og la resten ligge trygt til i morgen"
+            } else {
+                "Check off completed items, delete noise, leave the rest safely for tomorrow"
+            })
+            .build();
+        let imp_list = Rc::new(
+            gtk4::ListBox::builder()
+                .selection_mode(gtk4::SelectionMode::None)
+                .css_classes(["boxed-list"])
+                .build(),
+        );
+
+        type RenderCb = Rc<RefCell<Option<Box<dyn Fn()>>>>;
+        let render_imp_cell: RenderCb = Rc::new(RefCell::new(None));
+        let render_imp_weak = render_imp_cell.clone();
+        let state_imp = self.state.clone();
+        let imp_list_clone = imp_list.clone();
+        let main_imp_box = self.impulses_list_box.clone();
+
+        *render_imp_cell.borrow_mut() = Some(Box::new(move || {
+            while let Some(child) = imp_list_clone.first_child() {
+                imp_list_clone.remove(&child);
+            }
+            let st_settings = state_imp.borrow().settings.clone();
+            let items = storage::load_structured_impulses_with_cleanup(&st_settings);
+            if items.is_empty() {
+                let empty_row = ActionRow::builder()
+                    .title(if is_no { "Ingen parkerte impulser" } else { "No parked impulses" })
+                    .subtitle(if is_no { "Hodet er helt ryddet" } else { "Inbox is clean" })
+                    .build();
+                imp_list_clone.append(&empty_row);
+                return;
+            }
+
+            for (idx, item) in items.iter().enumerate().take(25) {
+                let row = ActionRow::builder().build();
+                if item.done {
+                    row.set_title(&format!(
+                        "<span strikethrough=\"true\" alpha=\"60%\">{}</span>",
+                        glib::markup_escape_text(&item.text)
+                    ));
+                } else {
+                    row.set_title(&glib::markup_escape_text(&item.text));
+                }
+
+                let check = gtk4::CheckButton::builder()
+                    .active(item.done)
+                    .valign(gtk4::Align::Center)
+                    .build();
+                let st_toggle = state_imp.clone();
+                let r_cb_toggle = render_imp_weak.clone();
+                let main_box_toggle = main_imp_box.clone();
+                check.connect_toggled(move |btn| {
+                    let s = st_toggle.borrow().settings.clone();
+                    let _ = storage::toggle_impulse_done(&s, idx, btn.is_active());
+                    Self::populate_impulses_box(&main_box_toggle, &st_toggle);
+                    if let Some(ref cb) = *r_cb_toggle.borrow() {
+                        cb();
+                    }
+                });
+                row.add_prefix(&check);
+
+                let del_btn = gtk4::Button::builder()
+                    .icon_name("user-trash-symbolic")
+                    .css_classes(["flat", "circular"])
+                    .valign(gtk4::Align::Center)
+                    .tooltip_text(if is_no { "Slett impuls" } else { "Delete impulse" })
+                    .build();
+                let st_del = state_imp.clone();
+                let r_cb_del = render_imp_weak.clone();
+                let main_box_del = main_imp_box.clone();
+                del_btn.connect_clicked(move |_| {
+                    let s = st_del.borrow().settings.clone();
+                    let mut all = storage::load_raw_structured_impulses(&s);
+                    if idx < all.len() {
+                        all.remove(idx);
+                        let _ = storage::save_structured_impulses(&s, &all);
+                    }
+                    Self::populate_impulses_box(&main_box_del, &st_del);
+                    if let Some(ref cb) = *r_cb_del.borrow() {
+                        cb();
+                    }
+                });
+                row.add_suffix(&del_btn);
+                imp_list_clone.append(&row);
+            }
+        }));
+        if let Some(ref cb) = *render_imp_cell.borrow() {
+            cb();
+        }
+        imp_group.add(&*imp_list);
+        content_box.append(&imp_group);
+
+        // Step 2: Evening RAM-dump for tomorrow
+        let evening_group = PreferencesGroup::builder()
+            .title(if is_no { "2. Kvelds-RAM-dump for morgendagens deg" } else { "2. Evening RAM-dump for tomorrow's you" })
+            .description(if is_no {
+                "Én setning om hva du jobbet med, og det aller første steget i morgen"
+            } else {
+                "One sentence on today's work and your very first micro-step tomorrow"
+            })
+            .build();
+
+        let autofill_row = ActionRow::builder()
+            .title(if is_no { "Hent forslag fra aktiv kontekst / AI" } else { "Suggest from active context / AI" })
+            .build();
+        let shutdown_autofill_btn = gtk4::Button::builder()
+            .label(if is_no { "Fyll ut automatisk" } else { "Auto-fill" })
+            .css_classes(["pill"])
+            .valign(gtk4::Align::Center)
+            .build();
+        autofill_row.add_suffix(&shutdown_autofill_btn);
+        evening_group.add(&autofill_row);
+
+        let shutdown_now_entry = EntryRow::builder()
+            .title(if is_no { "[OPPSUMMERING] Hva jobbet du med i dag?" } else { "[SUMMARY] What did you work on today?" })
+            .build();
+        let shutdown_next_entry = EntryRow::builder()
+            .title(if is_no { "[I MORGEN] Det aller første lille steget:" } else { "[TOMORROW] First tiny step:" })
+            .build();
+        evening_group.add(&shutdown_now_entry);
+        evening_group.add(&shutdown_next_entry);
+
+        {
+            let now_e = shutdown_now_entry.clone();
+            let next_e = shutdown_next_entry.clone();
+            let a_opt = anchor_opt.clone();
+            let s_clone = settings.clone();
+            shutdown_autofill_btn.connect_clicked(move |btn| {
+                let loading = if is_no { "⏳ Analyserer..." } else { "⏳ Analyzing..." };
+                let now_inner = now_e.clone();
+                let next_inner = next_e.clone();
+                Self::spawn_ramdump_suggestion(
+                    btn,
+                    loading,
+                    a_opt.clone(),
+                    s_clone.clone(),
+                    move |sug| {
+                        now_inner.set_text(&sug.now);
+                        next_inner.set_text(&sug.next_step);
+                    },
+                );
+            });
+        }
+        content_box.append(&evening_group);
+
+        // Step 3: Park and unplug
+        let finish_group = PreferencesGroup::builder()
+            .title(if is_no { "3. Koble av" } else { "3. Unplug & Shutdown" })
+            .build();
+        let finish_btn = gtk4::Button::builder()
+            .label(if is_no { "Parkér arbeidsminnet og ta kvelden" } else { "Park working memory & end day" })
+            .css_classes(["pill", "suggested-action"])
+            .halign(gtk4::Align::Center)
+            .margin_top(6)
+            .build();
+        finish_group.add(&finish_btn);
+        content_box.append(&finish_group);
+
+        {
+            let state_finish = self.state.clone();
+            let content_box_finish = content_box.clone();
+            let now_e = shutdown_now_entry.clone();
+            let next_e = shutdown_next_entry.clone();
+            let dialog_ref = dialog.clone();
+            let main_window_ref = self.window.clone();
+            let last_dump_row_ref = self.last_dump_row.clone();
+            let main_imp_list_ref = self.impulses_list_box.clone();
+            let main_ram_list_ref = self.ramdumps_list_box.clone();
+            let main_ram_now_ref = self.ram_now_entry.clone();
+            let main_ram_status_ref = self.ram_status_entry.clone();
+            let main_ram_next_ref = self.ram_next_entry.clone();
+            let main_ram_save_ref = self.save_ram_btn.clone();
+            let main_ram_cancel_ref = self.cancel_edit_ram_btn.clone();
+
+            finish_btn.connect_clicked(move |_| {
+                let summary_now = now_e.text().trim().to_string();
+                let tomorrow_step = next_e.text().trim().to_string();
+
+                let (remaining_impulses, last_dump_opt) = {
+                    let mut st = state_finish.borrow_mut();
+
+                    // Record any accrued focus minutes before resetting
+                    if st.flow.state == FlowState::Focus {
+                        let total_mins = st.flow.elapsed_focus_secs / 60;
+                        let newly_mins = total_mins.saturating_sub(st.last_recorded_focus_mins);
+                        if newly_mins > 0 {
+                            st.stats.record_focus_minutes(newly_mins);
+                            let _ = storage::save_user_stats(&st.stats);
+                        }
+                    }
+
+                    st.flow.reset();
+                    st.last_recorded_focus_mins = 0;
+                    st.previous_state = FlowState::Idle;
+                    st.audio.stop();
+                    st.audio.play_break_bong();
+
+                    if !summary_now.is_empty() || !tomorrow_step.is_empty() {
+                        let _ = storage::append_ramdump(
+                            &summary_now,
+                            if is_no { "Dagsavslutning (parkert for kvelden)" } else { "Shutdown (parked for the night)" },
+                            &tomorrow_step,
+                        );
+                        st.ramdump.last_dump = storage::load_last_ramdump();
+                    }
+
+                    let open_count = storage::load_structured_impulses_with_cleanup(&st.settings)
+                        .iter()
+                        .filter(|i| !i.done)
+                        .count();
+
+                    let rec = storage::ShutdownRecord {
+                        timestamp: chrono::Utc::now().timestamp(),
+                        date: chrono::Local::now().format("%Y-%m-%d").to_string(),
+                        tomorrow_first_step: tomorrow_step.clone(),
+                        summary_now: summary_now.clone(),
+                        remaining_impulses: open_count,
+                    };
+                    let _ = storage::save_shutdown_record(&rec);
+
+                    (open_count, st.ramdump.last_dump.clone())
+                };
+
+                Self::apply_last_ramdump_row(&last_dump_row_ref, last_dump_opt.as_ref(), is_no);
+                Self::populate_ramdumps_box(
+                    &main_ram_list_ref,
+                    &state_finish,
+                    &main_ram_now_ref,
+                    &main_ram_status_ref,
+                    &main_ram_next_ref,
+                    &main_ram_save_ref,
+                    &main_ram_cancel_ref,
+                    &last_dump_row_ref,
+                );
+                Self::populate_impulses_box(&main_imp_list_ref, &state_finish);
+
+                // Transition dialog to calm confirmation view
+                while let Some(child) = content_box_finish.first_child() {
+                    content_box_finish.remove(&child);
+                }
+
+                let confirm_card = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+                confirm_card.add_css_class("card");
+                confirm_card.add_css_class("hero-card");
+
+                let heading = gtk4::Label::builder()
+                    .label(if is_no { "Arbeidsminnet er trygt parkert." } else { "Working memory safely parked." })
+                    .css_classes(["title-2", "accent"])
+                    .halign(gtk4::Align::Center)
+                    .wrap(true)
+                    .build();
+                confirm_card.append(&heading);
+
+                let msg = gtk4::Label::builder()
+                    .label(&if is_no {
+                        format!(
+                            "Fokusøkten og fokuslyden er stoppet, og {} åpne impulser ligger trygt til i morgen. Logg av skjermen og ta kvelden!",
+                            remaining_impulses
+                        )
+                    } else {
+                        format!(
+                            "Focus session and audio stopped, and {} open impulses are safely parked for tomorrow. Step away and enjoy your evening!",
+                            remaining_impulses
+                        )
+                    })
+                    .css_classes(["dim-label"])
+                    .halign(gtk4::Align::Center)
+                    .wrap(true)
+                    .justify(gtk4::Justification::Center)
+                    .build();
+                confirm_card.append(&msg);
+
+                let btns = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
+                btns.set_halign(gtk4::Align::Center);
+                btns.set_margin_top(10);
+
+                let close_win_btn = gtk4::Button::builder()
+                    .label(if is_no { "Lukk vindu" } else { "Close window" })
+                    .css_classes(["pill"])
+                    .build();
+                let state_close_btn = state_finish.clone();
+                let dialog_close_ref = dialog_ref.clone();
+                close_win_btn.connect_clicked(move |_| {
+                    state_close_btn.borrow_mut().shutdown_window_open = false;
+                    dialog_close_ref.close();
+                });
+                btns.append(&close_win_btn);
+
+                let quit_app_btn = gtk4::Button::builder()
+                    .label(if is_no { "Avslutt Tether for i dag" } else { "Quit Tether for today" })
+                    .css_classes(["pill", "suggested-action"])
+                    .build();
+                let main_w = main_window_ref.clone();
+                quit_app_btn.connect_clicked(move |_| {
+                    if let Some(app) = main_w.application() {
+                        app.quit();
+                    } else {
+                        std::process::exit(0);
+                    }
+                });
+                btns.append(&quit_app_btn);
+
+                confirm_card.append(&btns);
+                content_box_finish.append(&confirm_card);
+            });
+        }
+
+        clamp.set_child(Some(&*content_box));
+        scrolled.set_child(Some(&clamp));
+        toolbar_view.set_content(Some(&scrolled));
+        dialog.set_child(Some(&toolbar_view));
+        dialog.present();
     }
 
     pub fn capture_impulse(&self, text: &str) {
@@ -3037,11 +4378,16 @@ impl TetherUi {
     }
 
     pub fn refresh_impulses_list(&self) {
-        let st = self.state.borrow();
-        let items = storage::load_structured_impulses_with_cleanup(&st.settings);
+        Self::populate_impulses_box(&self.impulses_list_box, &self.state);
+    }
 
-        while let Some(child) = self.impulses_list_box.first_child() {
-            self.impulses_list_box.remove(&child);
+    /// Populates a GTK ListBox with tracked impulses and syncs completion checkboxes.
+    pub fn populate_impulses_box(list_box: &gtk4::ListBox, state: &Rc<RefCell<AppState>>) {
+        let settings = state.borrow().settings.clone();
+        let items = storage::load_structured_impulses_with_cleanup(&settings);
+
+        while let Some(child) = list_box.first_child() {
+            list_box.remove(&child);
         }
 
         if items.is_empty() {
@@ -3049,7 +4395,7 @@ impl TetherUi {
                 .title("Ingen registrerte impulser ennå")
                 .subtitle("Skriv inn noe ovenfor for å parkere det med en gang.")
                 .build();
-            self.impulses_list_box.append(&row);
+            list_box.append(&row);
         } else {
             for (original_idx, item) in items.iter().enumerate().rev().take(30) {
                 let row = ActionRow::builder().build();
@@ -3073,7 +4419,7 @@ impl TetherUi {
                     }
                 }
 
-                let state_clone = self.state.clone();
+                let state_clone = state.clone();
                 let target_idx = original_idx;
                 let row_weak = row.downgrade();
                 let text = item.text.clone();
@@ -3101,7 +4447,7 @@ impl TetherUi {
                 });
 
                 row.add_prefix(&check_btn);
-                self.impulses_list_box.append(&row);
+                list_box.append(&row);
             }
         }
     }
@@ -3115,6 +4461,56 @@ impl TetherUi {
             "audio-volume-medium-symbolic"
         } else {
             "audio-volume-high-symbolic"
+        }
+    }
+
+    pub fn editor_extension_status(
+        resolved: EditorType,
+        mgr: crate::editor::NvimPluginManager,
+    ) -> (bool, String, bool) {
+        match resolved {
+            EditorType::Neovim | EditorType::Neovide => {
+                let (installed, sub) = crate::editor::check_nvim_plugin_status(mgr);
+                (installed, sub, true)
+            }
+            EditorType::Obsidian => {
+                let (installed, sub) = crate::editor::check_obsidian_plugin_status();
+                (installed, sub, true)
+            }
+            EditorType::VSCode | EditorType::VSCodium | EditorType::Cursor => {
+                let (installed, sub) = crate::editor::check_vscode_extension_status(resolved);
+                (installed, sub, true)
+            }
+            EditorType::None => (false, "Ingen applikasjon valgt".to_string(), false),
+            _ => (
+                true,
+                "Automatisk vindu- og filsporing (ingen plugin nødvendig)".to_string(),
+                false,
+            ),
+        }
+    }
+
+    pub fn apply_ext_row_status(
+        row: &ActionRow,
+        btn: &gtk4::Button,
+        nvim_combo: Option<&ComboRow>,
+        resolved: EditorType,
+        mgr: crate::editor::NvimPluginManager,
+    ) {
+        if let Some(combo) = nvim_combo {
+            combo.set_visible(resolved == EditorType::Neovim || resolved == EditorType::Neovide);
+        }
+        let (installed, sub, has_plugin) = Self::editor_extension_status(resolved, mgr);
+        row.set_subtitle(&sub);
+        btn.set_visible(has_plugin);
+        if has_plugin {
+            if installed {
+                btn.set_label("Reinstaller");
+                btn.remove_css_class("suggested-action");
+            } else {
+                btn.set_label("Installer utvidelse");
+                btn.add_css_class("suggested-action");
+            }
         }
     }
 }

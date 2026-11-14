@@ -425,6 +425,7 @@ impl Source for ProceduralNoiseSource {
 pub enum ChimeType {
     FocusStart, // Gentle, uplifting harmonic singing bowl / marimba chime (528 Hz)
     BreakStart, // Grounding, warm Tibetan meditation gong / bong (220 Hz)
+    TimeCue,    // Ultra-soft water-droplet / gentle harmonic time cue
 }
 
 /// Synthesizes organic, pleasant acoustic chime & gong transitions with zero clicks.
@@ -442,6 +443,7 @@ impl ChimeSource {
         let duration_secs = match chime_type {
             ChimeType::FocusStart => 1.4,
             ChimeType::BreakStart => 2.0,
+            ChimeType::TimeCue => 0.45,
         };
         let total_samples = (sample_rate as f32 * duration_secs) as usize;
         Self {
@@ -493,6 +495,16 @@ impl Iterator for ChimeSource {
                 let s3 = (2.0 * std::f32::consts::PI * (f0 * 2.0) * t).sin() * 0.15;
 
                 env * (s1 + s2 + s3) * self.volume * 0.60
+            }
+            ChimeType::TimeCue => {
+                // Ultra-soft water-droplet / gentle harmonic cue (880 Hz + 1320 Hz fifth)
+                let attack = (t / 0.015).min(1.0);
+                let decay = (-t * 8.5).exp();
+                let env = attack * decay;
+                let f0 = 880.0;
+                let s1 = (2.0 * std::f32::consts::PI * f0 * t).sin() * 0.75;
+                let s2 = (2.0 * std::f32::consts::PI * (f0 * 1.5) * t).sin() * 0.25;
+                env * (s1 + s2) * self.volume * 0.30
             }
         };
 
@@ -584,6 +596,10 @@ impl SoundscapePlayer {
 
     pub fn play_break_bong(&mut self) {
         self.play_chime(ChimeType::BreakStart);
+    }
+
+    pub fn play_time_cue(&mut self) {
+        self.play_chime(ChimeType::TimeCue);
     }
 
     pub fn play(&mut self) {
@@ -739,7 +755,7 @@ mod tests {
 
     #[test]
     fn test_chime_samples_valid() {
-        for chime_type in [ChimeType::FocusStart, ChimeType::BreakStart] {
+        for chime_type in [ChimeType::FocusStart, ChimeType::BreakStart, ChimeType::TimeCue] {
             let mut chime = ChimeSource::new(chime_type, 0.8);
             assert_eq!(chime.sample_rate(), 44100);
             let mut sample_count = 0;

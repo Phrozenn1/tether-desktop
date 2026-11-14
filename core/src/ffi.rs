@@ -124,6 +124,35 @@ fn dispatch_request(request: CoreRequest) -> Result<Value, String> {
         }
         "ramdump.last" => serde_json::to_value(storage::load_last_ramdump())
             .map_err(|error| error.to_string()),
+        "ramdump.list" => serde_json::to_value(storage::load_all_ramdumps())
+            .map_err(|error| error.to_string()),
+        "ramdump.update" => {
+            #[derive(Deserialize)]
+            struct UpdateRamDump {
+                index: usize,
+                now: String,
+                status: String,
+                next_step: String,
+            }
+            let payload: UpdateRamDump =
+                serde_json::from_value(request.payload).map_err(|error| error.to_string())?;
+            storage::update_ramdump_at(payload.index, &payload.now, &payload.status, &payload.next_step)
+                .map_err(|error| error.to_string())?;
+            serde_json::to_value(storage::load_all_ramdumps())
+                .map_err(|error| error.to_string())
+        }
+        "ramdump.delete" => {
+            #[derive(Deserialize)]
+            struct DeleteRamDump {
+                index: usize,
+            }
+            let payload: DeleteRamDump =
+                serde_json::from_value(request.payload).map_err(|error| error.to_string())?;
+            storage::delete_ramdump_at(payload.index)
+                .map_err(|error| error.to_string())?;
+            serde_json::to_value(storage::load_all_ramdumps())
+                .map_err(|error| error.to_string())
+        }
         "ramdump.save" => {
             #[derive(Deserialize)]
             struct SaveRamDump {
@@ -191,6 +220,23 @@ fn dispatch_request(request: CoreRequest) -> Result<Value, String> {
                 dopamine::save_dopamine_account(&account).map_err(|error| error.to_string())?;
             }
             Ok(serde_json::json!({ "removed": removed }))
+        }
+        "ramdump.suggest" => {
+            let settings = storage::load_settings();
+            let anchor = storage::load_context_anchor();
+            let suggestion = crate::context_engine::suggest_ramdump_fields(anchor.as_ref(), &settings);
+            serde_json::to_value(suggestion).map_err(|error| error.to_string())
+        }
+        "context.where_was_i" => {
+            let settings = storage::load_settings();
+            let card = crate::context_engine::build_where_was_i(&settings);
+            serde_json::to_value(card).map_err(|error| error.to_string())
+        }
+        "shutdown.save" => {
+            let record: storage::ShutdownRecord =
+                serde_json::from_value(request.payload).map_err(|error| error.to_string())?;
+            storage::save_shutdown_record(&record).map_err(|error| error.to_string())?;
+            Ok(serde_json::json!({ "saved": true }))
         }
         operation => Err(format!("Unsupported core operation: {operation}")),
     }

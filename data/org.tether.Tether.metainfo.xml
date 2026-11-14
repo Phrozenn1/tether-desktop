@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>org.tether.Tether</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>GPL-2.0</project_license>
   <name>Tether</name>
   <summary>Humane Flowmodoro, focus soundscapes, and cognitive companion for deep work</summary>
   <description>
@@ -16,8 +16,9 @@
       Instead of rigid countdown alarms that shatter concentration, Tether counts UP to ride your
       natural flow state and calculates proportional rest periods when you finish. It includes
       offline acoustic focus soundscapes (Brown, Pink, Green noise, 40 Hz Gamma, and authentic
-      nature field recordings), a rapid RAM-dump impulse buffer to park side-thoughts instantly,
-      and seamless save-state context anchoring with optional Neovim and VS Code integration.
+      nature field recordings), AI- and context-assisted RAM-dumps with full edit/delete history,
+      an impulse parking buffer, time anchoring, an evening shutdown ritual, and universal context
+      tracking across Obsidian, LibreOffice, PDF readers, creative tools, Neovim, and VS Code.
     </p>
   </description>
   <developer id="phrozenn.no">
@@ -30,6 +31,18 @@
     <binary>tether</binary>
   </provides>
   <releases>
+    <release version="1.4.0" date="2026-11-14">
+      <description>
+        <p>Universal deep-work release introducing AI-assisted RAM-dumps, edit/delete CRUD, Phase 4 recovery workflows, and Obsidian support.</p>
+        <ul>
+          <li>Universal app integration &amp; automatic window/file anchoring for Obsidian, Typora, LibreOffice, PDF/study readers (Sioyek, Evince, Zathura, Okular, Xournal++), image/design suites (GIMP, Krita, Inkscape, Darktable), video/3D/audio tools (Kdenlive, Omacut, Blender, Audacity, OBS), Neovim, and VS Code.</li>
+          <li>Non-blocking AI &amp; context-assisted RAM-dump autofill supporting Antigravity, GitHub Copilot, Claude, Gemini, Codex, and Ollama with heuristic fallback.</li>
+          <li>Full RAM-dump history management to view, edit, and delete saved entries.</li>
+          <li>Evening Shutdown Ritual, "Where Was I?" absence recovery card, and Time Anchor hard-stop reminders.</li>
+          <li>First-class tether-obsidian plugin support and GPL-2.0 relicensing.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.3.0" date="2026-11-10">
       <description>
         <p>Feature release introducing Dopamine Account and Micro-Rewards (Dopaminkonto) for ADHD positive reinforcement.</p>

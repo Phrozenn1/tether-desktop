@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Language {
@@ -185,6 +185,22 @@ impl EditorMinimizeAction {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AiAssistMode {
+    #[default]
+    Auto,
+    Antigravity,
+    Copilot,
+    Gemini,
+    Codex,
+    OpenCode,
+    Claude,
+    Ollama,
+    Cli,
+    GitOnly,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TetherSettings {
     #[serde(default)]
@@ -235,6 +251,20 @@ pub struct TetherSettings {
     pub speedbump_cooldown_secs: u64,
     #[serde(default = "default_speedbump_triggers")]
     pub speedbump_triggers: Vec<String>,
+    #[serde(default = "default_time_cue_interval")]
+    pub time_cue_interval_mins: u32,
+    #[serde(default = "default_true")]
+    pub time_cue_sound: bool,
+    #[serde(default)]
+    pub hard_stop_enabled: bool,
+    #[serde(default)]
+    pub hard_stop_time: String,
+    #[serde(default)]
+    pub hard_stop_label: String,
+    #[serde(default)]
+    pub ai_assist_mode: AiAssistMode,
+    #[serde(default = "default_ollama_model")]
+    pub ollama_model: String,
 }
 
 fn default_focus_ratio() -> u32 { 45 }
@@ -246,6 +276,8 @@ fn default_terminal_command() -> String { "xdg-terminal-exec nvim".to_string() }
 fn default_soundscape() -> crate::audio::SoundscapeType { crate::audio::SoundscapeType::Off }
 fn default_soundscape_volume() -> f32 { 0.45 }
 fn default_speedbump_cooldown() -> u64 { 60 }
+fn default_time_cue_interval() -> u32 { 30 }
+fn default_ollama_model() -> String { "qwen2.5-coder:7b".to_string() }
 fn default_speedbump_triggers() -> Vec<String> {
     vec![
         "reddit".to_string(),
@@ -291,6 +323,13 @@ impl Default for TetherSettings {
             speedbump_enabled: true,
             speedbump_cooldown_secs: 60,
             speedbump_triggers: default_speedbump_triggers(),
+            time_cue_interval_mins: 30,
+            time_cue_sound: true,
+            hard_stop_enabled: false,
+            hard_stop_time: String::new(),
+            hard_stop_label: String::new(),
+            ai_assist_mode: AiAssistMode::Auto,
+            ollama_model: default_ollama_model(),
         }
     }
 }
@@ -970,40 +1009,117 @@ pub fn append_ramdump(now: &str, status: &str, next_step: &str) -> Result<(), st
     Ok(())
 }
 
-pub fn load_last_ramdump() -> Option<(String, String, String, String)> {
-    let dir = get_data_dir();
-    let file_path = dir.join("ramdumps.md");
-    if let Ok(mut file) = std::fs::File::open(file_path) {
-        let mut content = String::new();
-        if file.read_to_string(&mut content).is_ok() {
-            let blocks: Vec<&str> = content.split("--- PAUSE / SAVE-STATE").collect();
-            if let Some(last) = blocks.last() {
-                if !last.trim().is_empty() {
-                    let mut time = String::new();
-                    let mut now = String::new();
-                    let mut status = String::new();
-                    let mut next = String::new();
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RamDumpEntry {
+    pub timestamp: String,
+    pub now: String,
+    pub status: String,
+    pub next_step: String,
+}
 
-                    for line in last.lines() {
-                        if line.contains('(') && line.contains(')') {
-                            time = line.trim_matches(|c| c != '(' && c != ')').trim_matches(|c| c == '(' || c == ')').to_string();
-                        } else if let Some(stripped) = line.strip_prefix("[NÅ]:") {
-                            now = stripped.trim().to_string();
-                        } else if let Some(stripped) = line.strip_prefix("[STATUS]:") {
-                            status = stripped.trim().to_string();
-                        } else if let Some(stripped) = line.strip_prefix("[NESTE STEG]:") {
-                            next = stripped.trim().to_string();
-                        }
-                    }
+pub fn load_all_ramdumps_from_path(file_path: &Path) -> Vec<RamDumpEntry> {
+    let mut entries = Vec::new();
+    let Ok(content) = std::fs::read_to_string(file_path) else {
+        return entries;
+    };
 
-                    if !now.is_empty() || !status.is_empty() {
-                        return Some((time, now, status, next));
+    for block in content.split("--- PAUSE / SAVE-STATE").skip(1) {
+        if block.trim().is_empty() {
+            continue;
+        }
+        let mut timestamp = String::new();
+        let mut now = String::new();
+        let mut status = String::new();
+        let mut next_step = String::new();
+
+        for line in block.lines() {
+            let trimmed = line.trim();
+            if timestamp.is_empty() && trimmed.contains('(') && trimmed.contains(')') {
+                if let (Some(start), Some(end)) = (trimmed.find('('), trimmed.rfind(')')) {
+                    if end > start {
+                        timestamp = trimmed[start + 1..end].to_string();
                     }
                 }
+            } else if let Some(stripped) = trimmed.strip_prefix("[NÅ]:") {
+                now = stripped.trim().to_string();
+            } else if let Some(stripped) = trimmed.strip_prefix("[STATUS]:") {
+                status = stripped.trim().to_string();
+            } else if let Some(stripped) = trimmed.strip_prefix("[NESTE STEG]:") {
+                next_step = stripped.trim().to_string();
             }
         }
+
+        if !now.is_empty() || !status.is_empty() || !next_step.is_empty() {
+            entries.push(RamDumpEntry {
+                timestamp,
+                now,
+                status,
+                next_step,
+            });
+        }
     }
-    None
+    entries
+}
+
+pub fn save_all_ramdumps_to_path(file_path: &Path, entries: &[RamDumpEntry]) -> Result<(), std::io::Error> {
+    if let Some(parent) = file_path.parent() {
+        create_dir_all(parent)?;
+    }
+    let mut out = String::new();
+    for entry in entries {
+        out.push_str(&format!(
+            "--- PAUSE / SAVE-STATE ({}) ---\n\
+             [NÅ]:         {}\n\
+             [STATUS]:     {}\n\
+             [NESTE STEG]: {}\n\
+             --------------------------------------------\n\n",
+            entry.timestamp, entry.now, entry.status, entry.next_step
+        ));
+    }
+    std::fs::write(file_path, out)
+}
+
+pub fn load_all_ramdumps() -> Vec<RamDumpEntry> {
+    let file_path = get_data_dir().join("ramdumps.md");
+    load_all_ramdumps_from_path(&file_path)
+}
+
+pub fn save_all_ramdumps(entries: &[RamDumpEntry]) -> Result<(), std::io::Error> {
+    let dir = ensure_data_dir()?;
+    save_all_ramdumps_to_path(&dir.join("ramdumps.md"), entries)
+}
+
+pub fn update_ramdump_at(index: usize, now: &str, status: &str, next_step: &str) -> Result<(), std::io::Error> {
+    let mut entries = load_all_ramdumps();
+    if index >= entries.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "RAM-dump index out of range",
+        ));
+    }
+    entries[index].now = now.to_string();
+    entries[index].status = status.to_string();
+    entries[index].next_step = next_step.to_string();
+    save_all_ramdumps(&entries)
+}
+
+pub fn delete_ramdump_at(index: usize) -> Result<(), std::io::Error> {
+    let mut entries = load_all_ramdumps();
+    if index >= entries.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "RAM-dump index out of range",
+        ));
+    }
+    entries.remove(index);
+    save_all_ramdumps(&entries)
+}
+
+pub fn load_last_ramdump() -> Option<(String, String, String, String)> {
+    load_all_ramdumps()
+        .into_iter()
+        .last()
+        .map(|e| (e.timestamp, e.now, e.status, e.next_step))
 }
 
 pub fn get_tether_window_pos() -> Option<(i32, i32)> {
@@ -1234,6 +1350,18 @@ pub fn get_focused_editor_from_state() -> Option<crate::editor::EditorType> {
         "cursor" => Some(crate::editor::EditorType::Cursor),
         "neovide" => Some(crate::editor::EditorType::Neovide),
         "helix" | "hx" => Some(crate::editor::EditorType::Helix),
+        "obsidian" => Some(crate::editor::EditorType::Obsidian),
+        "typora" => Some(crate::editor::EditorType::Typora),
+        "libreoffice" => Some(crate::editor::EditorType::LibreOffice),
+        "pdf_reader" | "sioyek" | "evince" | "zathura" | "okular" | "xournalpp" => {
+            Some(crate::editor::EditorType::PdfReader)
+        }
+        "image_editor" | "gimp" | "krita" | "inkscape" | "darktable" => {
+            Some(crate::editor::EditorType::ImageEditor)
+        }
+        "video_audio" | "kdenlive" | "omacut" | "blender" | "audacity" | "obs" => {
+            Some(crate::editor::EditorType::VideoAudio)
+        }
         _ => None,
     }
 }
@@ -1264,6 +1392,14 @@ pub struct ContextAnchor {
 
 pub fn get_context_anchor_file() -> PathBuf {
     get_data_dir().join("context_anchor.json")
+}
+
+pub fn save_context_anchor(anchor: &ContextAnchor) -> Result<(), std::io::Error> {
+    let dir = ensure_data_dir()?;
+    let path = dir.join("context_anchor.json");
+    let json = serde_json::to_string_pretty(anchor)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(path, json)
 }
 
 pub fn load_context_anchor() -> Option<ContextAnchor> {
@@ -1480,6 +1616,79 @@ pub fn save_user_stats(stats: &UserStats) -> Result<(), std::io::Error> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ShutdownRecord {
+    #[serde(default)]
+    pub timestamp: i64,
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub tomorrow_first_step: String,
+    #[serde(default)]
+    pub summary_now: String,
+    #[serde(default)]
+    pub remaining_impulses: usize,
+}
+
+pub fn get_last_shutdown_file() -> PathBuf {
+    get_data_dir().join("last_shutdown.json")
+}
+
+pub fn save_shutdown_record(record: &ShutdownRecord) -> Result<(), std::io::Error> {
+    let dir = ensure_data_dir()?;
+    let path = dir.join("last_shutdown.json");
+    let json = serde_json::to_string_pretty(record)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
+
+pub fn load_shutdown_record() -> Option<ShutdownRecord> {
+    let path = get_last_shutdown_file();
+    if let Ok(bytes) = std::fs::read(path) {
+        if let Ok(rec) = serde_json::from_slice::<ShutdownRecord>(&bytes) {
+            return Some(rec);
+        }
+    }
+    None
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ShutdownRequest {
+    timestamp: i64,
+}
+
+pub fn get_shutdown_request_file() -> PathBuf {
+    get_data_dir().join("shutdown_request.json")
+}
+
+pub fn request_shutdown_ritual() {
+    if let Ok(dir) = ensure_data_dir() {
+        let req = ShutdownRequest {
+            timestamp: chrono::Utc::now().timestamp(),
+        };
+        if let Ok(json) = serde_json::to_string(&req) {
+            let _ = std::fs::write(dir.join("shutdown_request.json"), json);
+        }
+    }
+}
+
+pub fn take_shutdown_request() -> bool {
+    let path = get_shutdown_request_file();
+    if !path.exists() {
+        return false;
+    }
+    let content = std::fs::read(&path);
+    let _ = std::fs::remove_file(&path);
+    if let Ok(bytes) = content {
+        if let Ok(req) = serde_json::from_slice::<ShutdownRequest>(&bytes) {
+            let now = chrono::Utc::now().timestamp();
+            return (now - req.timestamp).abs() <= 60;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1582,5 +1791,46 @@ mod tests {
         assert_eq!(state.editor, "neovim");
         assert_eq!(state.pid, 123);
         assert_eq!(state.timestamp, 1794321307);
+    }
+
+    #[test]
+    fn test_ramdump_crud() {
+        let unique = format!(
+            "tether_ramdump_test_{}_{}.md",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
+        let temp_path = std::env::temp_dir().join(unique);
+
+        let initial = vec![
+            RamDumpEntry {
+                timestamp: "2026-11-14 10:00:00".to_string(),
+                now: "Skriver rapport".to_string(),
+                status: "Halvveis i kapittel 2".to_string(),
+                next_step: "Skriv konklusjon".to_string(),
+            },
+            RamDumpEntry {
+                timestamp: "2026-11-14 14:30:00".to_string(),
+                now: "Klipper video i Kdenlive".to_string(),
+                status: "Ferdig med intro".to_string(),
+                next_step: "Legg til bakgrunnsmusikk".to_string(),
+            },
+        ];
+
+        save_all_ramdumps_to_path(&temp_path, &initial).unwrap();
+        let loaded = load_all_ramdumps_from_path(&temp_path);
+        assert_eq!(loaded, initial);
+
+        let mut modified = loaded;
+        modified[0].next_step = "Les korrektur på kapittel 2".to_string();
+        modified.remove(1);
+        save_all_ramdumps_to_path(&temp_path, &modified).unwrap();
+
+        let reloaded = load_all_ramdumps_from_path(&temp_path);
+        assert_eq!(reloaded.len(), 1);
+        assert_eq!(reloaded[0].now, "Skriver rapport");
+        assert_eq!(reloaded[0].next_step, "Les korrektur på kapittel 2");
+
+        let _ = std::fs::remove_file(&temp_path);
     }
 }
